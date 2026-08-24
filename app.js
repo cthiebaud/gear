@@ -32,11 +32,12 @@
 //                                  just so its image scales like a
 //                                  pedal's) instead of the default,
 //                                  "on top of the board", packed into the
-//                                  bordered rectangle's rows. Every
-//                                  rendered node also gets id="<node id>"
-//                                  in the HTML -- *where* a "free" node
-//                                  actually ends up is a pure CSS
-//                                  question, not this app's: see below.
+//                                  bordered rectangle's rows. *Where*
+//                                  around the board a "free" node actually
+//                                  ends up (which compass side, and its
+//                                  size if it's one of the 3 flagged in
+//                                  FLEXIBLE_SIZE_IDS) is computed, not
+//                                  configured -- see placeFreeItems.
 //   id:port -> id2:port2 [kind="..."]
 //                               -> a connection. kind is through (the
 //                                  default, omit it) | loop-out | loop-in
@@ -57,19 +58,15 @@
 // determines connections", just carried over to DOT's flat edge list.
 // `{ rank=same; a; b; c; }` overrides that for the nodes it lists: they
 // become one explicit row, in that order, instead of wherever automatic
-// width-based packing would otherwise put them (see buildRows). It's
+// width-based packing would otherwise put them (see segmentBoard). It's
 // real Graphviz syntax (same-tier grouping), not an app-specific
 // invention, so the file stays valid input to `dot -Tsvg` too.
 //
 // Multiple rigs, one page: index.html?config=NAME loads NAME.dot instead
-// of the default config.dot, and -- convention over configuration, same
-// basename -- also loads NAME.css if it exists (a plain <link>, added at
-// runtime; see loadConfigStylesheet in main()). That file is entirely
-// optional and entirely CSS: it's where a "free" node's actual position
-// gets set, by id (e.g. `#telecaster { grid-area: right; }`), against
-// the named-area grid .board-grid establishes in style.css (above / left
-// / board / right / below). Missing the file just means every free node
-// falls back to the grid's default auto-placement -- ugly, not broken.
+// of the default config.dot (see main()). Layout -- both the on-board row
+// breaks and where every "free" node ends up -- is computed fresh from
+// whatever NAME.dot describes; there's no separate per-config stylesheet
+// to keep in sync.
 
 // Real-world scale: widths are the actual measured footprint (see
 // pedal-dimensions-fixed.txt -- width = left-to-right, the dimension
@@ -89,8 +86,8 @@ const PX_PER_MM = 2.2;
 // and the jack point is a placeholder, not a reading.
 const PEDAL_SPECS = {
   telecaster :{
-    file: 'fen5250041346_01.png',
-    widthMm: 160,
+    file: 'telecaster.png',
+    widthMm: 200,
     out: { x: 0.94, y: 0.94 },
   },
   strobostomp_hd: {
@@ -456,26 +453,38 @@ function el(tag, className, children) {
   return node;
 }
 
-function sizedImage(src, alt, widthPx, approx) {
+// `baseWidthPx` is always a *scale=1* width (see the Board layout section
+// below) -- stashed on the element's dataset so applyScale() can rescale it
+// later without either side needing to recompute or re-look-up anything.
+function sizedImage(src, alt, baseWidthPx, approx) {
   const img = document.createElement('img');
   img.src = src;
   img.alt = alt;
-  img.style.width = Math.round(widthPx) + 'px';
+  img.dataset.baseWidth = baseWidthPx;
+  img.style.width = Math.round(baseWidthPx) + 'px';
   img.style.height = 'auto';
   if (approx) img.classList.add('approx');
   return img;
 }
 
-// Every box gets the node's own DOT id as its HTML id -- the hook a
-// per-config stylesheet (see loadConfigStylesheet in main()) uses to
-// position a "free" node, and generally useful for one-off tweaks later.
-function renderNodeBox(node) {
+// Every box gets the node's own DOT id as its HTML id -- generally useful
+// as a hook for one-off styling tweaks.
+function renderNodeBox(node, baseWidthPx) {
   const box = el('div', 'node-box');
   box.id = node.id;
   if (node.image) {
-    const img = node.spec
-      ? sizedImage(node.image, node.name, node.spec.widthMm * PX_PER_MM, node.spec.approx)
-      : sizedImage(node.image, node.name, DEFAULT_WIDTH_PX, false);
+    // Without an explicit width, an absolutely-positioned box (every free
+    // node, see renderPage) shrink-wraps to its widest *content* -- for a
+    // long device name (the Telecaster's especially) that's the label
+    // text on one unwrapped line, not the image, so the box silently
+    // renders far wider than nodeSizePx ever told the placement math to
+    // expect, and everything downstream of that width (this node's own
+    // position, anything placed relative to it) ends up wrong -- this is
+    // what free items overlapping the rectangle traced back to. Pinning
+    // the box to the image's own width forces the label to wrap under it
+    // instead, which is what measureLabelHeights already measured against.
+    box.dataset.baseWidth = baseWidthPx;
+    const img = sizedImage(node.image, node.name, baseWidthPx, node.spec && node.spec.approx);
     node.el = img; // shapeInfoFor/localRect read the <img> itself, regardless of whether it's link-wrapped below
     if (node.url) {
       const link = el('a', null, [img]);
@@ -498,49 +507,142 @@ function renderNodeBox(node) {
 }
 
 // --- Board layout -----------------------------------------------------
+//
+// Computes the whole page's geometry in JS, at "scale=1" (i.e. the same px
+// values a scale of 1 always renders at -- see applyScale, near main()),
+// then main() solves for the largest scale that fits the viewport with no
+// scrolling. Two things are searched for, in this order: (1) how many rows
+// the on-board chain's freely-packable runs break into (see
+// candidateRowPlans/widthForRowCount) -- primarily to keep the resulting
+// rectangle's aspect ratio close to what the viewport wants (a better fit
+// there directly means a bigger achievable scale, i.e. less uncovered
+// space), tie-broken by minimizing total connector length; (2) for that
+// choice of rows, exactly where each `place="free"` node ends up: its own
+// real (x, y) around the rectangle (see placeFreeItems), not a bucket in
+// a fixed grid, by the same wire-length metric. Both searches are small
+// and exact (n is ~15) -- no randomness, so results are reproducible and
+// (re-)explainable.
 
-// Assumed real width of one row of the board rectangle, in mm -- just
-// where a row breaks, not rendered as anything itself. 520mm keeps the
-// current pedal set to 2 rows (roughly a Pedaltrain Classic 1); a
-// compact 3-row board like a Pedaltrain Classic Jr would be closer to
-// 450mm. Tune to taste.
-const BOARD_ROW_WIDTH_MM = 520;
-const BOARD_ROW_WIDTH_PX = BOARD_ROW_WIDTH_MM * PX_PER_MM;
-const ROW_GAP_PX = 48; // keep in sync with .chain { gap } in style.css
+const ROW_GAP_X_PX = 48;    // horizontal gap between pedals in a row -- keep in sync with .chain's base gap in style.css
+const ROW_GAP_Y_PX = 1.6;   // vertical gap between stacked rows -- keep in sync with .board-rows's base gap
+const BOARD_LOWER_GAP_PX = 40; // gap between the row-stack and the sidebar (DVP5) -- keep in sync with .board-lower's base gap
+const BOARD_PADDING_X_PX = 32; // .board left/right padding, base
+const BOARD_PADDING_Y_PX = 28; // .board top/bottom padding, base
+const COMPASS_GAP_PX = 16;  // gap between free items sharing a compass side, and between a side and the board
+const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for any realistic pedal count
 
-function nodeWidthPx(node) {
+// The 3 items rule 4 allows to deviate from true real-world scale --
+// everything else (pedals, PSU, DVP5, P-Split) always renders at true
+// relative size. Sized against a fraction of the winning row height (see
+// nodeSizePx) rather than their own real width/height.
+const FLEXIBLE_SIZE_IDS = new Set(['telecaster', 'twin_reverb', 'ironball']);
+const FLEX_MIN_RATIO = 0.6, FLEX_MAX_RATIO = 1.3;
+
+// Power edges get a much lower weight in the wire-length objective than
+// signal/exp cables: nobody's judging this rig by how short its power
+// leads are, and letting them compete equally with signal-path wire length
+// would happily wreck a clean signal layout just to shave a few px off a
+// power cable. Not zero -- a small weight still keeps the PSU from landing
+// somewhere arbitrary when it's otherwise a tie -- just far from equal.
+const WIRE_WEIGHT = { power: 0, 'power-hc': 0 };
+function wireWeight(kind) { return WIRE_WEIGHT[kind] ?? 1; }
+
+// True real-world-scale width, before the solved `scale` is applied --
+// every node except the 3 FLEXIBLE_SIZE_IDS ones renders at this.
+function nodeRealWidthPx(node) {
   return node.spec ? node.spec.widthMm * PX_PER_MM : DEFAULT_WIDTH_PX;
 }
 
-// Greedily bin-packs a flat chain into rows that each fit within
-// BOARD_ROW_WIDTH_PX, using each node's real rendered width. This is
-// what actually minimizes total cable run for a fixed serial chain on a
-// fixed-width multi-row board: keep consecutive pedals adjacent, and
-// only break to a new row when the current one is full.
+// Real (photographed) aspect ratio, read once by preloadImages (see
+// main()) before any layout math happens -- geometry needs actual height,
+// not just width, and "height:auto" only exists once something is in the
+// DOM, which is too late for a pre-render solve.
+function nodeAspect(node) {
+  return node.image ? (node.naturalH / node.naturalW) : (90 / 120); // no-image boxes: match .node-box.no-image's fixed footprint
+}
+
+// A node's base (scale=1) box size. Real-scale for everything except the 3
+// flexible items, which instead target a height clamped to
+// [FLEX_MIN_RATIO, FLEX_MAX_RATIO] * refRowH (the shortest row in the
+// winning row plan) -- see the FLEXIBLE_SIZE_IDS comment above.
+// `h` here is the node-box's *total* footprint (image + label block below
+// it -- see measureLabelHeights), not just the image: every position in
+// this file is now rendered literally (position:absolute, see renderPage),
+// so a node's real footprint has to include everything CSS would
+// otherwise have quietly wrapped around, or two boxes placed "just
+// touching" by this math end up actually overlapping once each one's
+// name/owner text renders for real. `w` stays image-only -- it's what
+// sizedImage actually sets on the <img>, and nothing here reserves extra
+// *horizontal* space for a label wider than its own image (a longstanding
+// simplification, not new).
+function nodeSizePx(node, refRowH) {
+  const aspect = nodeAspect(node);
+  const labelH = node.labelH || 0;
+  if (FLEXIBLE_SIZE_IDS.has(node.id)) {
+    const naturalTotalH = nodeRealWidthPx(node) * aspect + labelH;
+    const totalH = Math.max(FLEX_MIN_RATIO * refRowH, Math.min(FLEX_MAX_RATIO * refRowH, naturalTotalH));
+    const imgH = Math.max(1, totalH - labelH);
+    return { w: imgH / aspect, h: totalH };
+  }
+  const w = nodeRealWidthPx(node);
+  return { w, h: w * aspect + labelH };
+}
+
+// Greedily bin-packs a chain into rows that each fit within maxWidthPx,
+// using each node's real rendered width -- keeps consecutive (adjacent in
+// the signal chain) pedals next to each other, only breaking to a new row
+// once the current one is full. Order-preserving (declaration order stays
+// intact, see the "Reordering" decision in the plan) -- the only thing
+// under this function's control is *where* it breaks.
 function packRows(chain, maxWidthPx) {
   const rows = [[]];
   let used = 0;
   for (const node of chain) {
-    const w = nodeWidthPx(node);
+    const w = nodeRealWidthPx(node);
     const row = rows[rows.length - 1];
-    if (row.length > 0 && used + ROW_GAP_PX + w > maxWidthPx) {
+    if (row.length > 0 && used + ROW_GAP_X_PX + w > maxWidthPx) {
       rows.push([]);
       used = 0;
     }
     rows[rows.length - 1].push(node);
-    used += (rows[rows.length - 1].length > 1 ? ROW_GAP_PX : 0) + w;
+    used += (rows[rows.length - 1].length > 1 ? ROW_GAP_X_PX : 0) + w;
   }
   return rows;
 }
 
-// Lays out the on-board chain into rows, honoring explicit `{ rank=same;
-// ... }` groups from config.dot (see buildModel) ahead of automatic
-// packing: a node that's part of a group is never auto-packed -- the
-// whole group becomes exactly one row, in the order listed, wherever its
-// members would otherwise have come up in the chain. Runs of nodes with
-// no group are handed to packRows exactly as before, so a config.dot
-// with no rank=same blocks at all behaves identically to plain packRows.
-function buildRows(onBoard, rowGroups, maxWidthPx) {
+// The smallest maxWidthPx that packs `items` into at most `k` rows, found
+// by binary search on the answer using packRows itself as the feasibility
+// check -- exact, and reuses packRows rather than reimplementing
+// bin-packing a second way. Lower bound is 0, not the widest single
+// item's own width: that bound would be correct for the *different*
+// problem of optimally partitioning into exactly k groups minimizing the
+// largest group's sum (where every group must hold at least its own
+// widest member) -- packRows is a plain greedy left-to-right packer, and
+// a fresh (empty) row always accepts its first item regardless of the
+// threshold (see packRows: the width check only applies once
+// `row.length > 0`), so a threshold *below* the widest item is still
+// perfectly valid, it just means that item ends up alone. Starting `lo`
+// too high silently made some row counts unreachable (e.g. two different
+// k's could converge on the same threshold and yield the same actual row
+// count, one k short of what was actually achievable).
+function widthForRowCount(items, k) {
+  const widths = items.map(nodeRealWidthPx);
+  if (k <= 1) return widths.reduce((a, w) => a + w, 0) + Math.max(0, items.length - 1) * ROW_GAP_X_PX;
+  if (k >= items.length) return Math.max(...widths);
+  let lo = 0, hi = widths.reduce((a, w) => a + w, 0);
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (packRows(items, mid).length <= k) hi = mid; else lo = mid + 1;
+  }
+  return lo;
+}
+
+// Splits the on-board chain into fixed segments (an explicit `{ rank=same;
+// ... }` group from config.dot, rendered as exactly one row, in the order
+// listed) and free-packable segments (everything else, handed to
+// packRows/widthForRowCount) -- same split buildRows used to do, just
+// returned as data instead of immediately packed at one fixed width.
+function segmentBoard(onBoard, rowGroups) {
   const onBoardSet = new Set(onBoard);
   const groupOf = new Map(); // node -> its group's node array
   for (const group of rowGroups) {
@@ -549,80 +651,415 @@ function buildRows(onBoard, rowGroups, maxWidthPx) {
     for (const n of members) groupOf.set(n, members);
   }
 
-  const rows = [];
+  const segments = [];
   let pending = [];
-  const flushPending = () => {
-    if (pending.length) rows.push(...packRows(pending, maxWidthPx));
-    pending = [];
-  };
-
+  const flush = () => { if (pending.length) segments.push({ fixed: false, nodes: pending }); pending = []; };
   const emitted = new Set();
   for (const node of onBoard) {
-    if (emitted.has(node)) continue; // already rendered as part of an earlier group
+    if (emitted.has(node)) continue; // already emitted as part of an earlier group
     const group = groupOf.get(node);
     if (group) {
-      flushPending();
-      rows.push(group);
+      flush();
+      segments.push({ fixed: true, nodes: group });
       group.forEach(n => emitted.add(n));
     } else {
       pending.push(node);
     }
   }
-  flushPending();
-  return rows;
+  flush();
+  return segments;
 }
 
-// Renders the whole page as a grid (.board-grid, 5 named areas -- above /
-// left / board / right / below, established in style.css): `place="free"`
-// nodes (guitar, amps, the PSU, anything with nothing a player needs to
-// reach) are appended directly as its children, each carrying its own
-// `id` so a per-config stylesheet can drop it into whichever named area
-// (and exact spot within it) it wants via `grid-area`/`justify-self`/etc
-// -- this function has no opinion on where a free node ends up, only
-// that it's a plain box outside the board. Everything else (the
-// default, "on top of the board") goes inside the one bordered
-// rectangle in the grid's "board" area -- most of it packed into a
-// snaking two- (or more-)row layout by real width (see buildRows), but a
-// spec flagged `sidebar` (an expression pedal: much deeper front-to-back
-// than any stompbox, so packing it into a row like the others would
-// badly distort that row's height) instead renders full-height alongside
-// the packed rows, inside that same rectangle. nodeList is already flat
-// and in file order (see buildModel) -- there's no tree to flatten
-// anymore, DOT's edges carry the topology directly.
-function renderPage(nodeList, rowGroups) {
-  const onBoard = nodeList.filter(n => n.place === 'board' && !(n.spec && n.spec.sidebar));
-  const sidebarNodes = nodeList.filter(n => n.place === 'board' && n.spec && n.spec.sidebar);
-  const freeNodes = nodeList.filter(n => n.place === 'free');
+// Yields every candidate full row plan: one row-count choice per
+// free-packable segment, cross-producted (capped -- current configs only
+// ever have one such segment, so this is just that segment's own options;
+// guarded anyway against a future config with more than one).
+function* candidateRowPlans(onBoard, rowGroups) {
+  const segments = segmentBoard(onBoard, rowGroups);
+  const freeSegIdxs = segments.map((s, i) => (s.fixed ? -1 : i)).filter(i => i >= 0);
+  const optionsPerSeg = freeSegIdxs.map(i => {
+    const cap = Math.min(segments[i].nodes.length, MAX_ROWS_PER_RUN);
+    return Array.from({ length: cap }, (_, k) => k + 1);
+  });
 
-  const grid = el('div', 'board-grid');
+  function* cross(i, acc) {
+    if (i === optionsPerSeg.length) { yield acc; return; }
+    for (const k of optionsPerSeg[i]) yield* cross(i + 1, [...acc, k]);
+  }
+
+  let count = 0;
+  for (const combo of cross(0, [])) {
+    if (++count > 64) break; // sanity cap on the cross-product
+    const rows = [];
+    let ci = 0;
+    for (const seg of segments) {
+      if (seg.fixed) { rows.push(seg.nodes); continue; }
+      const k = combo[ci++];
+      // Both ends of the row-count range are built directly rather than
+      // via packRows + a computed width threshold: k=1 (one row) would
+      // need a threshold exactly equal to the items' own total width,
+      // which risks a false split from ordinary floating-point summation
+      // error right at that boundary (packRows' own `>` check landing on
+      // the wrong side of an intended tie); k >= seg.nodes.length (one row
+      // per node) can't be reached via *any* threshold at all -- packRows
+      // still greedily combines any adjacent items that together fit
+      // under it, however small the threshold, so it's built directly
+      // instead of asking packRows to (re-)discover either shape.
+      let rowsForSeg;
+      if (k <= 1) rowsForSeg = [seg.nodes];
+      else if (k >= seg.nodes.length) rowsForSeg = seg.nodes.map(n => [n]);
+      else rowsForSeg = packRows(seg.nodes, widthForRowCount(seg.nodes, k));
+      rows.push(...rowsForSeg);
+    }
+    yield rows;
+  }
+}
+
+// Computes every node's local {x, y, w, h} (top-left origin at the
+// row-stack's own top-left) for one row plan, mirroring the actual CSS:
+// .board-rows stacks rows, and each row alternates direction
+// (row-reverse on every other one, same rule renderPage's rowEl className
+// uses) so that consecutive rows' "joining" pedals -- the actual endpoints
+// of the one chain edge that crosses the row break -- land on the same
+// side, the snake pattern that keeps that transition short. Reused by both
+// the solver (scale=1 sizes) and, indirectly, real rendering (same rows,
+// same alternation, just scaled).
+// `flip` XORs into every row's own alternation bit -- a single global
+// left/right mirror of the whole rectangle. Alternation itself (odd rows
+// reversed relative to even ones) stays on regardless: it's what keeps a
+// chain edge that crosses a row break short (the two pedals it connects
+// land on the same side, one row above the other), and that's still true
+// under either flip state, just mirrored along with everything else.
+// *Which* of the two flip states is better is a real, and cheap, second
+// thing to search for (see solveLayout) -- worth doing because it's the
+// only lever that changes which literal edge of the rectangle a given
+// pedal (e.g. StroboStomp, wired to the guitar) ends up on, which a
+// free node's own wire length (see placeFreeItems) very much cares about,
+// and because a *single* row has no adjacent row to alternate against in
+// the first place, so without a flip choice it would always render
+// mirrored for no reason at all.
+function measureRows(rows, flip) {
+  const pos = new Map();
+  let y = 0;
+  let width = 0;
+  // .board-rows is `flex-direction: column-reverse` (see style.css), so
+  // rows[0] -- the first one appended to the DOM, in renderPage -- ends up
+  // rendered at the *bottom*, not the top, and each following row stacks
+  // upward from there. Walking the array back-to-front here, while
+  // accumulating y top-down, is what makes this function's y values
+  // actually match that rendering, not just each row's own internal
+  // (order-independent) height sum -- matters for telling a free node
+  // "above" from "below" correctly (see placeFreeItems), not for
+  // in-rectangle wire length, which only ever depends on *relative*
+  // positions and so was never affected by this. `reversed` still keys off
+  // each row's own original array index (rowIdx), matching renderPage's
+  // identical rule for its row-reverse className -- that's a left/right
+  // alternation, independent of which order rows are walked in here.
+  for (let rowIdx = rows.length - 1; rowIdx >= 0; rowIdx--) {
+    const row = rows[rowIdx];
+    const reversed = (rowIdx % 2 === 0) !== flip;
+    let x = 0;
+    let rowH = 0;
+    row.forEach((node, i) => {
+      const { w, h } = nodeSizePx(node, 0); // refRowH unused for non-flexible on-board nodes
+      if (i > 0) x += ROW_GAP_X_PX;
+      pos.set(node, { x, y, w, h });
+      x += w;
+      rowH = Math.max(rowH, h);
+    });
+    if (reversed) {
+      for (const node of row) {
+        const p = pos.get(node);
+        p.x = x - p.x - p.w;
+      }
+    }
+    width = Math.max(width, x);
+    y += rowH + ROW_GAP_Y_PX;
+  }
+  return { pos, width, height: rows.length ? y - ROW_GAP_Y_PX : 0 };
+}
+
+function portPoint(pos, node, which) {
+  const p = pos.get(node);
+  const frac = jackFraction(node, which);
+  if (!p || !frac) return null;
+  return { x: p.x + frac.x * p.w, y: p.y + frac.y * p.h };
+}
+
+function manhattan(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+// Total wire length for every link whose both ends currently have a known
+// position, weighted per wireWeight -- the rule-3/rule-5 tie-break metric,
+// shared by the row-count search and the free-item placement search.
+function totalWireLength(links, pos) {
+  let total = 0;
+  for (const link of links) {
+    const a = portPoint(pos, link.from, link.fromPoint);
+    const b = portPoint(pos, link.to, link.toPoint);
+    if (a && b) total += manhattan(a, b) * wireWeight(link.kind);
+  }
+  return total;
+}
+
+const COMPASS_SIDES = ['above', 'left', 'right', 'below'];
+
+// Which rectangle edge a point is nearest, in the rectangle's own local
+// frame (0,0)-(boardW,boardH) -- and, along that edge, the coordinate
+// (x for above/below, y for left/right) a node anchored to that point
+// would ideally sit at. Point can be anywhere, inside the rectangle or
+// arbitrarily far outside it (a free node's own connections routinely put
+// its anchor well past the rectangle's own bounds): clamping the point
+// into the rectangle first is what finds the true nearest boundary point
+// when it's outside (a clamped coordinate that actually moved is exactly
+// the one that was pinned to an edge); a point already inside instead
+// picks whichever of the 4 edges it's closest to, same rule jackEdge uses
+// for a jack fraction.
+function nearestEdge(boardW, boardH, px, py) {
+  const cx = Math.min(boardW, Math.max(0, px));
+  const cy = Math.min(boardH, Math.max(0, py));
+  const xPinned = cx !== px, yPinned = cy !== py;
+  if (xPinned || yPinned) {
+    const overX = px < 0 ? -px : px - boardW;
+    const overY = py < 0 ? -py : py - boardH;
+    if (xPinned && (!yPinned || overX >= overY)) return { side: px < 0 ? 'left' : 'right', coord: cy };
+    return { side: py < 0 ? 'above' : 'below', coord: cx };
+  }
+  const d = { above: py, below: boardH - py, left: px, right: boardW - px };
+  const side = Object.keys(d).reduce((a, b) => (d[a] <= d[b] ? a : b));
+  return { side, coord: (side === 'above' || side === 'below') ? px : py };
+}
+
+// A free node's own pull point: the weighted centroid of every connection
+// it actually has a resolvable anchor for right now. `resolvedPos` is
+// whatever's known at this point in the 2-pass placement below (see
+// placeFreeItems) -- board nodes are always in it; a *free* node only
+// once its own first-pass position has been computed, which is exactly
+// what makes the second pass able to anchor a free<->free edge (e.g.
+// P-Split <-> Ironball, or Twin Reverb, which connects to nothing *but*
+// P-Split) that the first pass necessarily couldn't.
+function freeNodeAnchor(node, links, resolvedPos) {
+  let sx = 0, sy = 0, sw = 0;
+  for (const l of links) {
+    if (l.from !== node && l.to !== node) continue;
+    const other = l.from === node ? l.to : l.from;
+    const otherPoint = l.from === node ? l.toPoint : l.fromPoint;
+    const p = resolvedPos.get(other);
+    if (!p) continue;
+    const frac = jackFraction(other, otherPoint);
+    const a = frac ? { x: p.x + frac.x * p.w, y: p.y + frac.y * p.h } : { x: p.x + p.w / 2, y: p.y + p.h / 2 };
+    const wt = wireWeight(l.kind);
+    sx += a.x * wt; sy += a.y * wt; sw += wt;
+  }
+  return sw ? { x: sx / sw, y: sy / sw } : null;
+}
+
+// Assigns every free node to whichever rectangle edge its own anchor (see
+// freeNodeAnchor) is nearest, grouped by edge -- one round of the 2-pass
+// process in placeFreeItems.
+function assignEdges(freeNodes, links, resolvedPos, boardW, boardH, refRowH) {
+  const bySide = { above: [], left: [], right: [], below: [] };
+  for (const node of freeNodes) {
+    const { w, h } = nodeSizePx(node, refRowH);
+    const anchor = freeNodeAnchor(node, links, resolvedPos);
+    // No resolvable anchor at all (not even a free<->free one) can only
+    // happen if a node has no edges whatsoever -- buildModel wouldn't have
+    // included it in nodeList in the first place, so this is unreachable
+    // in practice; the fallback is just defensive.
+    const { side, coord } = anchor ? nearestEdge(boardW, boardH, anchor.x, anchor.y) : { side: 'above', coord: boardW / 2 };
+    bySide[side].push({ node, w, h, coord });
+  }
+  return bySide;
+}
+
+// Lays same-edge items out along that edge, in ideal-coordinate order,
+// nudging later ones forward just enough to clear the one before --
+// preserves each item's own ideal position exactly where nothing else
+// contends for it, same principle as packRows but along a line instead of
+// bin-packing by width.
+function layoutAlongEdge(items) {
+  const sorted = [...items].sort((a, b) => a.coord - b.coord);
+  const starts = new Map();
+  let cursor = -Infinity;
+  for (const it of sorted) {
+    let start = it.coord - it.size / 2;
+    if (cursor > -Infinity) start = Math.max(start, cursor);
+    starts.set(it.node, start);
+    cursor = start + it.size + COMPASS_GAP_PX;
+  }
+  return starts;
+}
+
+// Turns one edge assignment (see assignEdges) into real positions, in the
+// rectangle's own local frame -- (0,0) is the rectangle's own top-left,
+// and a position here is free to be negative or exceed boardW/boardH
+// (e.g. several wide items sharing the top edge can easily need more
+// width than the rectangle itself has -- solveLayout finds the true
+// overall bounding box afterward, over every node's actual position, not
+// just this rectangle's own).
+function layoutBySide(bySide, boardW, boardH) {
+  const pos = new Map();
+  const extents = { above: 0, below: 0, left: 0, right: 0 };
+  for (const side of COMPASS_SIDES) {
+    const items = bySide[side];
+    if (!items.length) continue;
+    const horizontal = side === 'above' || side === 'below';
+    const along = items.map(it => ({ node: it.node, coord: it.coord, size: horizontal ? it.w : it.h }));
+    const reserve = Math.max(...items.map(it => (horizontal ? it.h : it.w))) + COMPASS_GAP_PX;
+    extents[side] = reserve;
+    const starts = layoutAlongEdge(along);
+    for (const it of items) {
+      const start = starts.get(it.node);
+      const x = side === 'left' ? -reserve : side === 'right' ? boardW + COMPASS_GAP_PX : start;
+      const y = side === 'above' ? -reserve : side === 'below' ? boardH + COMPASS_GAP_PX : start;
+      pos.set(it.node, { x, y, w: it.w, h: it.h });
+    }
+  }
+  return { pos, extents };
+}
+
+// Places every free node -- guitar, amps, the PSU, DVP5's neighbors --
+// around the rectangle at its own real (x, y), not bucketed into a fixed
+// compass column/row the way a CSS grid would force it to be (a grid
+// area's align-items:center throws away exactly the "how far along this
+// edge" information the search computes -- see the plan/commit message
+// for why that was the actual bug behind free items landing far from
+// what they connect to). Two rounds: the first can only anchor a node via
+// its connections to *board* nodes (nothing free has a position yet); the
+// second re-resolves every node's anchor with the first round's free-node
+// positions folded in too, so a free<->free edge -- P-Split <-> Ironball,
+// and Twin Reverb, which connects to nothing else -- gets a real anchor
+// on both ends instead of an arbitrary fallback.
+function placeFreeItems(freeNodes, links, boardPos, boardW, boardH, refRowH) {
+  const round1 = layoutBySide(assignEdges(freeNodes, links, boardPos, boardW, boardH, refRowH), boardW, boardH);
+
+  const resolved2 = new Map(boardPos);
+  for (const [n, p] of round1.pos) resolved2.set(n, p);
+  return layoutBySide(assignEdges(freeNodes, links, resolved2, boardW, boardH, refRowH), boardW, boardH);
+}
+
+// Two-tier comparison used across row-plan candidates: primarily maximize
+// the achievable scale (rule 1 + rule 5 -- a bad aspect ratio directly
+// wastes visible space no matter how tidy the wiring is), tie-broken
+// (within a few percent) by minimizing total wire length (rule 3).
+function isBetterLayout(a, b) {
+  if (a.scale > b.scale * 1.03) return true;
+  if (b.scale > a.scale * 1.03) return false;
+  return a.wireLength < b.wireLength;
+}
+
+// Ties the row-count search and free-item placement search together: for
+// each candidate row plan, lay out the rectangle (+ DVP5's sidebar, if
+// present), place every free node (see placeFreeItems), find the true
+// overall bounding box (rectangle and every free node, all of it -- not
+// an approximation from the rectangle's own size plus per-side extents,
+// since free items sharing an edge can collectively need more room than
+// the rectangle itself has), and score that box against the available
+// viewport space. Returns the winning arrangement's absolute position for
+// *every* node (`pos`), already shifted so the whole thing starts at
+// (0, 0) -- ready for renderPage/applyScale to place directly, no
+// grid/flex layout left for the browser to still have an opinion about.
+function solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW, availH) {
+  let best = null;
+  for (const rows of candidateRowPlans(onBoard, rowGroups)) {
+  for (const flip of [false, true]) {
+    const rowGeom = measureRows(rows, flip);
+
+    // DVP5 (if present) sits beside the row-stack, top-aligned, full
+    // board-lower height -- same structure as today's .board-sidebar.
+    let boardW = rowGeom.width, boardH = rowGeom.height;
+    const boardPos = new Map();
+    for (const [n, p] of rowGeom.pos) boardPos.set(n, p);
+    if (sidebarNodes.length) {
+      let sx = rowGeom.width + BOARD_LOWER_GAP_PX;
+      for (const n of sidebarNodes) {
+        const { w, h } = nodeSizePx(n, 0);
+        boardPos.set(n, { x: sx, y: 0, w, h });
+        boardH = Math.max(boardH, h);
+      }
+      boardW = sx + Math.max(...sidebarNodes.map(n => nodeSizePx(n, 0).w));
+    }
+    for (const [, p] of boardPos) { p.x += BOARD_PADDING_X_PX; p.y += BOARD_PADDING_Y_PX; }
+    boardW += 2 * BOARD_PADDING_X_PX;
+    boardH += 2 * BOARD_PADDING_Y_PX;
+
+    const rowHeights = rows.map(row => Math.max(...row.map(n => nodeSizePx(n, 0).h), 0));
+    const refRowH = rowHeights.length ? Math.min(...rowHeights) : DEFAULT_WIDTH_PX;
+
+    const { pos: freePos } = placeFreeItems(freeNodes, links, boardPos, boardW, boardH, refRowH);
+
+    let minX = 0, minY = 0, maxX = boardW, maxY = boardH;
+    for (const [, p] of freePos) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+    }
+    const totalW = maxX - minX, totalH = maxY - minY;
+    const scale = Math.min(availW / totalW, availH / totalH);
+
+    const pos = new Map();
+    for (const [n, p] of boardPos) pos.set(n, { x: p.x - minX, y: p.y - minY, w: p.w, h: p.h });
+    for (const [n, p] of freePos) pos.set(n, { x: p.x - minX, y: p.y - minY, w: p.w, h: p.h });
+    const wireLength = totalWireLength(links, pos);
+
+    const candidate = { rows, flip, pos, boardOffset: { x: -minX, y: -minY }, boardW, boardH, totalW, totalH, scale, wireLength };
+    if (!best || isBetterLayout(candidate, best)) best = candidate;
+  }
+  }
+  return best;
+}
+
+// Renders the whole page as one absolutely-positioned canvas
+// (.board-canvas, explicit width/height set by applyScale): the rectangle
+// (.board -- the packed rows solveLayout chose, plus DVP5's sidebar, if
+// present, full-height alongside them, both still plain flex layout
+// internally, unchanged) sits at solved.boardOffset, and every
+// `place="free"` node (guitar, amps, the PSU...) sits at its own real
+// (x, y) from solved.pos -- no grid, no compass buckets, nothing left for
+// the browser's own alignment rules to override. Every node's image is
+// sized at its base (scale=1) width here; main() calls applyScale
+// afterward to bring the whole canvas (position, size, gaps, fonts -- see
+// style.css) to the solved scale in one pass.
+function renderPage(solved, sidebarNodes, freeNodes) {
+  const canvas = el('div', 'board-canvas');
+  canvas.dataset.baseWidth = solved.totalW;
+  canvas.dataset.baseHeight = solved.totalH;
 
   const board = el('div', 'board');
-
-  // board-lower holds just the pedal-row-stack and any sidebar item,
-  // side by side -- top-aligned (not stretched/centered) so StroboStomp
-  // HD, at the near end of the bottom row right beside the sidebar, has
-  // clearance underneath for its `in` jack to route into.
+  board.dataset.baseLeft = solved.boardOffset.x;
+  board.dataset.baseTop = solved.boardOffset.y;
+  // board-lower holds just the pedal-row-stack and any sidebar item, side
+  // by side -- top-aligned (not stretched/centered) so StroboStomp HD, at
+  // the near end of the bottom row right beside the sidebar, has clearance
+  // underneath for its `in` jack to route into.
   const boardLower = el('div', 'board-lower');
   const rowStack = el('div', 'board-rows');
-  const rows = buildRows(onBoard, rowGroups, BOARD_ROW_WIDTH_PX);
-  rows.forEach((rowNodes, rowIdx) => {
-    const rowEl = el('div', 'chain board-row' + (rowIdx % 2 === 0 ? ' row-reverse' : ''));
-    rowNodes.forEach(n => rowEl.append(renderNodeBox(n)));
+  solved.rows.forEach((rowNodes, rowIdx) => {
+    const reversed = (rowIdx % 2 === 0) !== solved.flip; // must match measureRows' identical rule exactly, or rendering would disagree with what was actually solved for
+    const rowEl = el('div', 'chain board-row' + (reversed ? ' row-reverse' : ''));
+    rowNodes.forEach(n => rowEl.append(renderNodeBox(n, nodeSizePx(n, 0).w)));
     rowStack.append(rowEl);
   });
   boardLower.append(rowStack);
 
   if (sidebarNodes.length) {
     const sidebar = el('div', 'board-sidebar');
-    sidebarNodes.forEach(n => sidebar.append(renderNodeBox(n)));
+    sidebarNodes.forEach(n => sidebar.append(renderNodeBox(n, nodeSizePx(n, 0).w)));
     boardLower.append(sidebar);
   }
-
   board.append(boardLower);
-  grid.append(board);
-  freeNodes.forEach(n => grid.append(renderNodeBox(n)));
+  canvas.append(board);
 
-  return grid;
+  for (const node of freeNodes) {
+    const p = solved.pos.get(node);
+    const box = renderNodeBox(node, p.w);
+    box.classList.add('free');
+    box.dataset.baseLeft = p.x;
+    box.dataset.baseTop = p.y;
+    canvas.append(box);
+  }
+
+  return canvas;
 }
 
 // --- Connector overlay (libavoid) ------------------------------------------
@@ -1012,72 +1449,9 @@ function nextFrame() {
   return new Promise(res => requestAnimationFrame(res));
 }
 
-// Scales `section` down (or up) so it fits entirely within the current
-// viewport, the way object-fit:contain fits an image into its box --
-// whichever axis is tighter (view width vs. the diagram's real width,
-// view height vs. its real height) sets the scale, so nothing overflows
-// and nothing is cropped. Uses CSS zoom, not transform:scale: zoom also
-// shrinks the box's own layout footprint, so #app (and the page) don't
-// keep reserving space for the diagram's full, unscaled size -- the
-// same reason a genuinely smaller image wouldn't leave blank space
-// around it either. Horizontal centering is a plain width:fit-content +
-// margin:0 auto rule on section.config in style.css, not something
-// computed here -- see that rule's own comment for why it's block
-// centering and not flex justify-content (which would throw off the
-// measurement below).
-//
-// Vertical centering can't lean on the same trick: CSS only auto-
-// centers a block box on its *horizontal* margins in normal flow --
-// `margin-top: auto` computes to 0, it doesn't self-center -- and a
-// flex/grid ancestor would reintroduce exactly the symmetric-overflow
-// problem the horizontal rule's comment describes, just on the other
-// axis. So this computes the leftover vertical space by hand, once the
-// section's final scaled height is known, and splits it evenly into a
-// marginTop -- set on `section.parentElement`, not `section` itself:
-// zoom scales *every* length of the element it's applied to, margins
-// included, so a marginTop set directly on the zoomed section would get
-// shrunk right back down by finalScale (nearly invisible at small
-// scales). The parent isn't zoomed, so a margin there renders at the
-// real pixel value computed below. It's applied only *after* zoom is
-// set to its final value (never during the natural-size measurement
-// below), so it can't skew that measurement the way a permanent
-// flex/grid ancestor would.
-//
-// "Available space" isn't simply the viewport size: body padding, this
-// section's own margin, a header, anything else sharing the page all
-// eat into it too, and offsetWidth/offsetHeight (naturalW/naturalH)
-// don't include an element's own margin. Rather than hand-list every
-// padding/margin that could push the page past one viewport (fragile --
-// breaks again the next time spacing changes anywhere on the page), the
-// document's full natural scrollWidth/scrollHeight minus the section's
-// own size stands in for "all the fixed chrome around it," whatever
-// that happens to be, and gets subtracted from the viewport instead.
-//
-// Resets zoom and marginTop first so every call measures the page's
-// true natural size, not whatever scale/offset a previous call left
-// behind.
-function fitToViewport(section) {
-  const parent = section.parentElement;
-  section.style.zoom = 1;
-  parent.style.marginTop = '';
-  const naturalW = section.offsetWidth;
-  const naturalH = section.offsetHeight;
-  if (!naturalW || !naturalH) return;
-  const chromeW = document.documentElement.scrollWidth - naturalW;
-  const chromeH = document.documentElement.scrollHeight - naturalH;
-  const scale = Math.min(
-    (window.innerWidth - chromeW) / naturalW,
-    (window.innerHeight - chromeH) / naturalH
-  );
-  const finalScale = scale > 0 ? scale : 1;
-  section.style.zoom = finalScale;
-  const leftoverH = window.innerHeight - chromeH - naturalH * finalScale;
-  parent.style.marginTop = leftoverH > 0 ? `${leftoverH / 2}px` : '';
-}
-
-// Delays `fn` until `waitMs` after the *last* call -- window resize
-// fires continuously while the user drags, and both fitToViewport and a
-// full wireConnectors re-route are too heavy (the latter rebuilds every
+// Delays `fn` until `waitMs` after the *last* call -- window resize fires
+// continuously while the user drags, and both a full relayout and a full
+// wireConnectors re-route are too heavy (the latter rebuilds every
 // libavoid obstacle/pin and re-routes every connector) to redo on each
 // individual event.
 function debounce(fn, waitMs) {
@@ -1098,93 +1472,218 @@ function waitForImages(container) {
   );
 }
 
-// Adds NAME.css as a <link>, if it exists -- the per-config stylesheet
-// that positions that config's "free" nodes (see the vocabulary comment
-// at the top of the file). Missing is not an error: a config that
-// hasn't been given one yet just falls back to .board-grid's default
-// auto-placement, so this always resolves, never rejects.
-function loadConfigStylesheet(name) {
-  return new Promise(resolve => {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = `${name}.css`;
-    link.onload = () => resolve();
-    link.onerror = () => {
-      console.warn(`pedalboard: no ${link.href} (using .board-grid's default placement)`);
-      link.remove();
-      resolve();
-    };
-    document.head.appendChild(link);
-  });
+// Reads every node's real (photographed) naturalWidth/naturalHeight before
+// any layout math happens -- the geometry solver (see the Board layout
+// section) needs real aspect ratios, not just widths, and needs them
+// *before* building any DOM. Off-DOM Image() objects, not <img> elements
+// appended somewhere temporary: nothing here needs to be visible, and the
+// browser cache means the real <img> elements renderPage creates later
+// reuse this same fetch instead of downloading twice. Missing/broken image
+// files resolve (not reject) with a 1x1 fallback aspect so a single bad
+// path can't hang the whole page.
+function preloadImages(nodeList) {
+  return Promise.all(nodeList.filter(n => n.image).map(node => new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => { node.naturalW = img.naturalWidth; node.naturalH = img.naturalHeight; resolve(); };
+    img.onerror = () => { node.naturalW = 1; node.naturalH = 1; resolve(); };
+    img.src = node.image;
+  })));
+}
+
+// Measures every node's real label-block height (name + owner, if any --
+// see renderNodeBox) at its real (scale=1) rendered width, once, before
+// any layout math runs, and stashes it as node.labelH for nodeSizePx to
+// read -- see that function's comment for why a node's real total
+// footprint, not a guessed constant, is what geometry needs now that
+// nothing is left to CSS flow layout to reconcile against actual content.
+// A real DOM measurement, not a formula: the Telecaster's name alone is
+// long enough to wrap 2-3 lines depending on width, which no constant
+// could get right for every node. Built inside a `section.config` host so
+// `--ui-scale`'s default of 1 (see style.css) resolves the exact same
+// calc()s real rendering uses. A `no-image` node has no image to size
+// against and isn't part of any width-bearing row/free-item math either,
+// so it's left at 0 -- its own fixed min-height (see .node-box.no-image)
+// covers it.
+function measureLabelHeights(nodeList) {
+  const host = el('section', 'config');
+  host.style.position = 'absolute';
+  host.style.visibility = 'hidden';
+  host.style.left = '-9999px';
+  host.style.top = '0';
+  const probe = el('div', 'node-box');
+  host.append(probe);
+  document.body.append(host);
+
+  for (const node of nodeList) {
+    if (!node.image) { node.labelH = 0; continue; }
+    // Constraining the probe itself to the same width the real box will
+    // be pinned to (see renderNodeBox) is what makes this measurement
+    // mean anything -- an unconstrained flex column sizes to its widest
+    // *child*, and with no width to wrap against, the name would measure
+    // as one long unwrapped line here regardless of how it actually
+    // renders. (For the 3 FLEXIBLE_SIZE_IDS nodes this is still only an
+    // approximation -- their real final width isn't known until a row
+    // height is, later -- using their natural real width tends to
+    // under-measure slightly, since the bracket almost always narrows
+    // them further, which only wraps a label *more*. Every other node's
+    // width is fixed, so this is exact for them.)
+    const w = Math.round(nodeRealWidthPx(node));
+    probe.style.width = w + 'px';
+    const spacer = document.createElement('div');
+    spacer.style.width = w + 'px';
+    spacer.style.marginBottom = 'calc(0.5rem * var(--ui-scale))'; // mirrors .node-box img's own margin-bottom
+    const children = [spacer, el('div', 'node-name', [document.createTextNode(node.name)])];
+    if (node.owner) children.push(el('div', 'node-owner', [document.createTextNode(node.owner)]));
+    probe.replaceChildren(...children);
+    node.labelH = probe.offsetHeight;
+  }
+  host.remove();
+}
+
+// How much px space the board actually has to work with. #app is a
+// flex:1 item in body's column layout (see style.css) -- its own
+// getBoundingClientRect is already exactly "the viewport, minus the
+// header and body's padding", computed by the browser instead of
+// reimplemented by hand here (and, thanks to #app's min-height:0, this
+// stays accurate even mid-resize while it still holds the previous,
+// possibly oversized board -- flex-shrink lets #app's own box shrink to
+// its fair share regardless of content, content can overflow it instead).
+// Doesn't depend on anything the layout solver computes, so, unlike the
+// old fitToViewport, this never needs a render-measure-render cycle: it's
+// just as valid to call before the board exists as after.
+function availableSpace() {
+  const rect = document.getElementById('app').getBoundingClientRect();
+  return { availW: Math.max(200, rect.width), availH: Math.max(200, rect.height) };
+}
+
+// Applies a solved scale directly -- real px, no CSS zoom/transform (see
+// the plan: zoom's mobile quirks, combined with any resize-triggered
+// recompute, are what caused the old scroll/resize feedback loop). Every
+// image's base (scale=1) width was stashed on its own dataset by
+// sizedImage; --ui-scale drives everything else that needs to track it
+// (gaps, padding, font sizes -- see style.css's calc(... * var(--ui-scale))
+// rules).
+// `data-base-*` is the same one convention every absolutely-positioned or
+// explicitly-sized thing here uses for its own scale=1 value -- an <img>'s
+// own width (see sizedImage), .board-canvas's overall width/height (so it
+// has a real size for #app's flex centering to center against -- an
+// absolutely-positioned child, which every direct child of .board-canvas
+// now is, contributes nothing to a normal parent's own size), and every
+// absolutely-positioned node's left/top (the rectangle itself, and every
+// free node -- see renderPage). One attribute name, one lookup here,
+// regardless of which of those a given element needs.
+function applyScale(section, scale) {
+  section.style.setProperty('--ui-scale', scale);
+  for (const el of section.querySelectorAll('[data-base-width]')) {
+    el.style.width = Math.round(parseFloat(el.dataset.baseWidth) * scale) + 'px';
+  }
+  for (const el of section.querySelectorAll('[data-base-height]')) {
+    el.style.height = Math.round(parseFloat(el.dataset.baseHeight) * scale) + 'px';
+  }
+  for (const el of section.querySelectorAll('[data-base-left]')) {
+    el.style.left = Math.round(parseFloat(el.dataset.baseLeft) * scale) + 'px';
+  }
+  for (const el of section.querySelectorAll('[data-base-top]')) {
+    el.style.top = Math.round(parseFloat(el.dataset.baseTop) * scale) + 'px';
+  }
 }
 
 async function main() {
-  // index.html?config=NAME loads NAME.dot + NAME.css instead of the
-  // default config.dot (+ config.css) -- see the vocabulary comment.
+  // index.html?config=NAME loads NAME.dot instead of the default
+  // config.dot -- see the vocabulary comment.
   const configName = new URLSearchParams(location.search).get('config') || 'config';
-
-  const [text] = await Promise.all([
-    fetch(`${configName}.dot`).then(res => res.text()),
-    loadConfigStylesheet(configName),
-  ]);
+  const text = await fetch(`${configName}.dot`).then(res => res.text());
   // dotparser.min.js is a UMD build (global `dotParser`, not an ES
   // export), loaded via a classic <script> tag in index.html before this
   // one, so it's already on window here.
   const ast = window.dotParser.parse(text);
   const { nodeList, links, rowGroups } = buildModel(ast);
+  await preloadImages(nodeList);
+  measureLabelHeights(nodeList);
+
+  const onBoard = nodeList.filter(n => n.place === 'board' && !(n.spec && n.spec.sidebar));
+  const sidebarNodes = nodeList.filter(n => n.place === 'board' && n.spec && n.spec.sidebar);
+  const freeNodes = nodeList.filter(n => n.place === 'free');
 
   const root = document.getElementById('app');
-  const boardGrid = renderPage(nodeList, rowGroups);
-
-  const section = el('section', 'config', [
-    boardGrid,
-  ]);
+  const section = el('section', 'config');
   root.append(section);
-  const sections = [{ el: boardGrid, links, section }];
-
-  await waitForImages(boardGrid);
-  // An image's `load` event can fire a frame before the browser has
-  // actually reflowed the page, so a route computed synchronously here
-  // would read stale (often zero-size) positions. Wait for two animation
-  // frames to guarantee a real layout pass has happened.
-  await nextFrame();
-  await nextFrame();
+  const sections = [{ links, section }]; // .el filled in below, once the board actually exists
 
   const { AvoidLib } = await import('./libs/libavoid/index.js');
   await AvoidLib.load();
   const avoid = AvoidLib.getInstance();
 
   // Re-routing rebuilds the whole overlay from scratch (wireConnectors
-  // always appends a fresh <svg>), so the previous one has to go first
-  // or they'd stack up, one per resize.
+  // always appends a fresh <svg>), so the previous one has to go first or
+  // they'd stack up, one per resize.
   function route() {
     const old = root.querySelector('.connector-overlay');
     if (old) old.remove();
     wireConnectors(avoid, root, sections);
   }
 
-  // fitToViewport changes section's rendered (and, via zoom, layout)
-  // size, which is exactly what route()'s obstacle/pin positions are
-  // read from -- so it always runs first, both on first paint and on
-  // every resize, or the wires would be routed against stale geometry.
-  function fitAndRoute() {
-    fitToViewport(section);
+  // Rebuilds the board from scratch at whatever scale currently fits --
+  // needed (not just a rescale) because a resize can change *how many
+  // rows* or *which compass side* the solve picks, not just how big
+  // everything renders. Images are already cached from preloadImages, so
+  // this doesn't need its own waitForImages wait to know real sizes --
+  // only two animation frames to guarantee the browser has actually
+  // reflowed the freshly-appended DOM before anything reads its geometry
+  // (an image's own `load` event, if one somehow still fires here, can
+  // land a frame before that reflow).
+  async function relayout() {
+    const { availW, availH } = availableSpace();
+    const solved = solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW, availH);
+    section.replaceChildren();
+    const boardGrid = renderPage(solved, sidebarNodes, freeNodes);
+    section.append(boardGrid);
+    sections[0].el = boardGrid;
+    applyScale(section, solved.scale);
+
+    await nextFrame();
+    await nextFrame();
+
+    // One bounded corrective pass, never re-triggered by itself (only a
+    // genuine resize re-enters relayout) -- guards against the solver's
+    // model of gap/font/padding sizes not being *perfectly* linear in
+    // scale (font metrics/kerning round to whole pixels), not a
+    // measure-adjust-loop the way the old fitToViewport's zoom was.
+    const rect = boardGrid.getBoundingClientRect();
+    if (rect.width > availW + 1 || rect.height > availH + 1) {
+      const corr = Math.min(availW / rect.width, availH / rect.height);
+      applyScale(section, solved.scale * corr);
+    }
+  }
+
+  async function relayoutAndRoute() {
+    await relayout();
     route();
   }
 
-  fitAndRoute();
-  // Routes drawn against mid-drag geometry would be visibly wrong for
-  // the whole 150ms the debounce is waiting out -- pedals already
-  // moved/rescaled, wires still pointing at where they used to be. Hide
-  // the (now stale) overlay on the very first resize event, before the
-  // debounce even starts its wait; fitAndRoute's route() replaces it
-  // with a fresh (default-visible) one once it actually runs, so there's
-  // nothing to explicitly un-hide.
-  const scheduleFitAndRoute = debounce(fitAndRoute, 150);
+  await relayoutAndRoute();
+
+  // Routes drawn against mid-resize geometry would be visibly wrong for
+  // the whole debounce wait -- pedals already moved/rescaled, wires still
+  // pointing at where they used to be. Hide the (now stale) overlay on the
+  // very first resize event, before the debounce even starts its wait;
+  // relayoutAndRoute's route() replaces it with a fresh (default-visible)
+  // one once it actually runs, so there's nothing to explicitly un-hide.
+  //
+  // Only innerWidth/innerHeight actually changing schedules a relayout --
+  // guards against mobile browsers firing `resize` for reasons that don't
+  // change either (e.g. the dynamic toolbar's own show/hide animation),
+  // which is exactly the kind of event that fed the old feedback loop.
+  let lastW = window.innerWidth, lastH = window.innerHeight;
+  const scheduleRelayout = debounce(() => {
+    if (window.innerWidth === lastW && window.innerHeight === lastH) return;
+    lastW = window.innerWidth; lastH = window.innerHeight;
+    relayoutAndRoute();
+  }, 150);
   window.addEventListener('resize', () => {
     const overlay = root.querySelector('.connector-overlay');
     if (overlay) overlay.style.visibility = 'hidden';
-    scheduleFitAndRoute();
+    scheduleRelayout();
   });
 }
 

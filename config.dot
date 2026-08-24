@@ -7,20 +7,11 @@ digraph pedalboard {
 
   // --- devices ---------------------------------------------------------
 
-  // telecaster [owner="Fender", image="fen5250041346_01.png",
-  //       label="Limited Edition Made In Japan Super Deluxe Thinline Telecaster"];
-
-  // ironball [owner="Engl", image="Engl-E606.png",
-  //       label="E606 Ironball SE"];
   // compact60 [owner="AER", image="AER_Compact60_AcousticAmp_SH_04-scaled.jpg",
   //       label="Compact 60 (2nd Gen) Amplifier"];
 
   telecaster [owner="Fender", place="free",
       label="Limited Edition Made In Japan Super Deluxe Thinline Telecaster|<out> out"];
-
-
-  dvp5 [shape=record, owner="Dunlop", url="https://www.jimdunlop.com/volume-x-8-pedal/",
-        label="DVP5 Volume (X) 8 Pedal|<exp> exp"];
 
   strobostomp_hd [shape=record, owner="Peterson", url="https://www.petersontuners.com/products/stroboStompHD/",
         label="<in> in|StroboStomp HD|<out> out|<power> pwr"];
@@ -39,6 +30,9 @@ digraph pedalboard {
   bluesky [shape=record, owner="Strymon", url="https://www.strymon.net/product/bluesky/",
         label="<in> in|BlueSky|<out> out|<power> pwr"];
 
+  dvp5 [shape=record, owner="Dunlop", place="free", url="https://www.jimdunlop.com/volume-x-8-pedal/",
+        label="DVP5 Volume (X) 8 Pedal|<exp> exp"];
+  
   // simplifier_x [shape=record, owner="DSM & Humboldt",
   //       label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
 
@@ -52,17 +46,6 @@ digraph pedalboard {
         label="<in> in|P-Split III|<outDir> dir|<outIso> iso"];
 
   pedal_power [owner="Voodoo Lab", url="https://voodoolab.com/product/pedal-power-4x4/", label="Pedal Power 4x4"];
-
-  // --- board layout --------------------------------------------------
-  //
-  // Row 0 (StroboStomp HD, 1176, Centavo, Tim V3) isn't listed here --
-  // it fits on one row on its own by real width (see BOARD_ROW_WIDTH_MM
-  // in app.js), so plain automatic packing already puts it where it
-  // belongs. This block only overrides row 1, which wouldn't naturally
-  // end up this way (Brig would otherwise auto-pack onto row 0, after
-  // Tim V3, since there's still room for it there).
-
-  { rank=same; brig; electric_blue_chorus; capistan; bluesky; }
 
   // --- signal chain ------------------------------------------------------
 
@@ -78,8 +61,8 @@ digraph pedalboard {
   tim_v3:out -> psplit:in;
 
   electric_blue_chorus:out -> capistan:in;
-  capistan:out -> bluesky:in;
   dvp5:exp -> capistan:exp [kind=exp];
+  capistan:out -> bluesky:in;
 
   // psplit:outIso -> simplifier_x:in [kind=fork];
   // simplifier_x:loopOut -> electric_blue_chorus:in [kind="loop-out"];

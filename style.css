@@ -36,12 +36,32 @@
 
 * { box-sizing: border-box; }
 
+/* Rule 1 (no scrolling, ever) is enforced structurally here, not just by
+   getting the layout math in app.js right: even a 1px overshoot in that
+   math can never produce a visible scrollbar, which matters because a
+   scrollbar changing the viewport's own size is exactly what fed the old
+   zoom-based layout's resize feedback loop (see app.js's relayout comment).
+   height:100% is required for overflow:hidden to actually clip on some
+   mobile browsers otherwise treat body as content-sized regardless. */
+html, body {
+  overflow: hidden;
+  height: 100%;
+}
+
+/* A flex column so #app (the second child) can claim "the rest of the
+   viewport, after the header" via flex:1 and center its one child (the
+   board) both ways within that -- see #app below. Replaces the old
+   fitToViewport's hand-computed marginTop centering trick now that there's
+   no natural-size measurement pass left for a permanent flex ancestor to
+   throw off (see app.js's relayout). */
 body {
   margin: 0;
   padding: 2rem clamp(1rem, 4vw, 3rem) 4rem;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
 }
 
 header h1 {
@@ -64,9 +84,22 @@ header h1 {
 
 /* Connector paths are drawn in coordinates relative to #app's own
    top-left (see localRect() in app.js), so #app must be the positioned
-   ancestor those coordinates resolve against. */
+   ancestor those coordinates resolve against. flex:1 claims whatever
+   height body's column layout has left after the header; centering the
+   one child (section.config) both ways here is what used to need
+   fitToViewport's hand-rolled marginTop math -- app.js's relayout()
+   already sizes that child to fit, so plain centering is enough now.
+   min-height:0 is required for a flex item to actually be allowed to
+   shrink below its content size in a column flex container -- without it
+   a tall board could quietly push the header off past the top edge
+   instead of ever triggering app.js's own too-big correction. */
 #app {
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* The libavoid-routed connectors are rendered into one <svg> appended as
@@ -86,24 +119,17 @@ header h1 {
   pointer-events: none;
 }
 
-/* width:fit-content (not the block default of 100%) so this shrinks to
-   the diagram's own natural size -- both so fitToViewport (app.js) is
-   measuring the actual content width, not #app's, and so margin:auto
-   has real leftover space to center within once it does. Plain block
-   centering, not flex justify-content: a flex item wider than its
-   container overflows symmetrically on *both* sides, including into
-   negative scroll position that scrollWidth doesn't fully capture,
-   which threw off fitToViewport's math. A block's auto margins can't go
-   negative -- they clamp to 0 -- so an oversized section here just
-   left-aligns and overflows on one side only, which scrollWidth
-   measures correctly. Vertical centering can't use the same auto-margin
-   trick (margin-top:auto doesn't self-center in normal flow), so
-   fitToViewport sets marginTop on this section's *parent* (#app) once
-   it knows the section's final scaled height -- see that function's
-   comment for why the parent and not this element. */
+/* #app's own flex centering (both axes) does all the work now -- app.js's
+   relayout() already sizes this to fit available space, so there's
+   nothing left for this element's own box model to contribute.
+   --ui-scale is set once per relayout (see applyScale in app.js) and
+   drives every fixed-looking dimension below via calc(... *
+   var(--ui-scale)) -- the direct-sizing replacement for what CSS zoom used
+   to do uniformly. The default of 1 here only matters before the first
+   relayout ever runs (there's nothing to render at that point anyway). */
 section.config {
-  width: fit-content;
-  margin: 0 auto 3rem;
+  margin: 0;
+  --ui-scale: 1;
 }
 
 .chain {
@@ -111,10 +137,14 @@ section.config {
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 3rem;
-  overflow-x: auto;
-  overflow-y: visible;
-  padding: 2rem 0.5rem 1rem;
+  gap: calc(3rem * var(--ui-scale));
+  /* Rule 1 is enforced by app.js's own sizing math (plus the corrective
+     pass in relayout()), not by letting a row scroll internally if that
+     math is ever slightly off -- hidden, not auto, so a 1px miss clips
+     instead of growing a scrollbar (see html/body's own overflow:hidden
+     for why that specifically has to never happen). */
+  overflow: hidden;
+  padding: calc(2rem * var(--ui-scale)) calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
 }
 
 /* Each routed connector is one <path> in the .connector-overlay svg,
@@ -198,43 +228,32 @@ section.config {
   fill: var(--wire-exp);
 }
 
-/* The compass grid every page is: .board sits in the center cell; any
-   place="free" node (guitar, amps, the PSU...) is a direct sibling
-   child, positioned into one of the 4 named side cells -- or fine-tuned
-   further within one -- by a per-config stylesheet targeting it by #id
-   (see loadConfigStylesheet in app.js). A free node with no matching
-   rule just falls into the grid's own auto-placement (the unused corner
-   cells) -- unstyled, not broken.
-
-   "right" spans all 3 rows (unlike "above"/"below"/"left", each just
-   one) -- since it's a single column with only one named area in it top
-   to bottom, that's a plain rectangle, still valid grid-template-areas.
-   Same trick would apply to "left" if something ever needs the full
-   height on that side too. */
-.board-grid {
+/* Every node on the page -- the rectangle and every place="free" node
+   alike -- is positioned by an explicit left/top app.js computes (see
+   solveLayout/renderPage/applyScale), not by any CSS layout algorithm's
+   own opinion about alignment: a CSS Grid area's align-items:center was
+   exactly what used to throw away "how far along this edge" a free node's
+   own computed position meant, centering it in the whole area regardless.
+   .board-canvas only needs to be the positioned ancestor those explicit
+   coordinates resolve against, and to actually have a size of its own
+   (an absolutely-positioned child contributes nothing to a normal parent's
+   size, so its width/height are set explicitly too, in applyScale) for
+   #app's flex centering to center against. */
+.board-canvas {
   position: relative;
-  display: grid;
-  grid-template-columns: auto auto auto;
-  grid-template-rows: auto auto auto;
-  grid-template-areas:
-    ".    above  right"
-    "left board right"
-    ".    below  right";
-  align-items: center;
-  justify-items: center;
-  gap: 1rem;
 }
 
 /* The one rectangle standing in for the physical pedalboard: every real
    pedal in the whole rig goes in here, however deep it sits in a loop or
    split -- only place="free" nodes (guitar, amps, the PSU...) render
-   outside it, as siblings in .board-grid. */
+   outside it, as siblings in .board-canvas, each at their own computed
+   position (see .node-box.free below). */
 .board {
-  grid-area: board;
+  position: absolute;
   border: 2px solid var(--border);
-  border-radius: 16px;
+  border-radius: calc(16px * var(--ui-scale));
   background: var(--board-bg);
-  padding: 1.75rem 2rem;
+  padding: calc(1.75rem * var(--ui-scale)) calc(2rem * var(--ui-scale));
 }
 
 /* Row-direction: the packed pedal rows on one side, any sidebar item
@@ -249,7 +268,7 @@ section.config {
      sidebar would put its bulk right where that jack needs clearance to
      route into; top-aligning leaves that space open underneath it. */
   align-items: flex-start;
-  gap: 2.5rem;
+  gap: calc(2.5rem * var(--ui-scale));
 }
 
 .board-rows {
@@ -258,7 +277,7 @@ section.config {
   /* Just enough for the one cable crossing rows (Tim V3 -> P-Split) to
      route without overlapping either row -- not sized for legibility
      the way .chain's inter-pedal gap is. */
-  gap: 0.1rem;
+  gap: calc(0.1rem * var(--ui-scale));
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -281,6 +300,13 @@ section.config {
   text-align: center;
 }
 
+/* A place="free" node (guitar, amps, the PSU...), positioned directly
+   against .board-canvas at its own computed left/top -- see the
+   .board-canvas comment above. */
+.node-box.free {
+  position: absolute;
+}
+
 /* Wraps the image when the node has a `url` (see renderNodeBox) -- block
    so it shrink-wraps the image with no inline baseline gap underneath,
    same box the bare <img> would otherwise occupy directly. */
@@ -291,7 +317,7 @@ section.config {
 .node-box img {
   display: block;
   object-fit: contain;
-  margin-bottom: 0.5rem;
+  margin-bottom: calc(0.5rem * var(--ui-scale));
   filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.18));
 }
 
@@ -299,13 +325,15 @@ section.config {
   opacity: 0.92;
 }
 
+/* 120x90 matches DEFAULT_WIDTH_PX and the no-image aspect fallback in
+   app.js's nodeAspect -- keep the three in sync. */
 .node-box.no-image {
   justify-content: center;
-  min-height: 90px;
-  width: 120px;
+  min-height: calc(90px * var(--ui-scale));
+  width: calc(120px * var(--ui-scale));
   border: 1px dashed var(--border);
-  border-radius: 8px;
-  padding: 0.5rem;
+  border-radius: calc(8px * var(--ui-scale));
+  padding: calc(0.5rem * var(--ui-scale));
 }
 
 .node-box.annotation {
@@ -322,14 +350,14 @@ section.config {
 }
 
 .node-name {
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--ui-scale));
   font-weight: 600;
   line-height: 1.2;
 }
 
 .node-owner {
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--ui-scale));
   color: var(--muted);
-  margin-top: 0.15rem;
+  margin-top: calc(0.15rem * var(--ui-scale));
 }
 
