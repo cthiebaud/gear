@@ -1592,7 +1592,12 @@ async function main() {
   // index.html?config=NAME loads NAME.dot instead of the default
   // config.dot -- see the vocabulary comment.
   const configName = new URLSearchParams(location.search).get('config') || 'config';
-  const text = await fetch(`${configName}.dot`).then(res => res.text());
+  // cache: 'no-cache' -- not "don't cache", but "always revalidate with the
+  // server first" (a conditional If-None-Match/If-Modified-Since request)
+  // -- so an edit to config.dot shows up on next load without needing a
+  // manual cache-buster the way style.css/app.js do (see index.html): this
+  // is the one file editing this app is actually meant to involve.
+  const text = await fetch(`${configName}.dot`, { cache: 'no-cache' }).then(res => res.text());
   // dotparser.min.js is a UMD build (global `dotParser`, not an ES
   // export), loaded via a classic <script> tag in index.html before this
   // one, so it's already on window here.

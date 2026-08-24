@@ -4,7 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pedalboard Configs</title>
-  <link rel="stylesheet" href="style.css" />
+  <!-- ?v=N is a manual cache-buster against GitHub Pages' CDN (~10min
+       default max-age) -- bump it whenever style.css or app.js changes
+       and you need visitors to pick it up immediately rather than wait
+       out the CDN's own cache. config.dot doesn't need this: it's fetched
+       at runtime with cache:'no-cache' instead (see app.js's main()), so
+       editing it never requires remembering to bump anything here. -->
+  <link rel="stylesheet" href="style.css?v=1" />
 </head>
 <body>
   <header>
@@ -12,6 +18,6 @@
   </header>
   <main id="app"></main>
   <script src="libs/dotparser/dotparser.min.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=1"></script>
 </body>
 </html>
