@@ -536,7 +536,7 @@ const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for a
 // relative size. Sized against a fraction of the winning row height (see
 // nodeSizePx) rather than their own real width/height.
 const FLEXIBLE_SIZE_IDS = new Set(['telecaster', 'twin_reverb', 'ironball']);
-const FLEX_MIN_RATIO = 0.6, FLEX_MAX_RATIO = 1.3;
+const FLEX_MIN_RATIO = 0.5, FLEX_MAX_RATIO = 2.5;
 
 // Power edges get a much lower weight in the wire-length objective than
 // signal/exp cables: nobody's judging this rig by how short its power
