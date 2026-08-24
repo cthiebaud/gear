@@ -1666,7 +1666,17 @@ async function main() {
     route();
   }
 
-  await relayoutAndRoute();
+  // The static #loading spinner (see index.html) comes down once the
+  // diagram is actually fully displayed -- rendered *and* routed, not
+  // just rendered, so it doesn't disappear a beat before the wires
+  // actually appear. `finally`, not just after the `await`: a failure
+  // partway through (a bad config.dot, a network hiccup) should still
+  // clear it rather than leave it spinning forever over a blank board.
+  try {
+    await relayoutAndRoute();
+  } finally {
+    document.getElementById('loading')?.remove();
+  }
 
   // Routes drawn against mid-resize geometry would be visibly wrong for
   // the whole debounce wait -- pedals already moved/rescaled, wires still

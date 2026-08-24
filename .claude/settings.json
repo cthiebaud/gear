@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check app.js)",
+      "Bash(git rm *)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8082/index.html)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8082/config.dot)",
+      "Bash(npx -y chromium-cli --help)",
+      "Bash(python3 -c \"import playwright; print\\('py-playwright ok'\\)\")",
+      "Bash(npx --no-install playwright --version)",
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(python3 -c \"from playwright.sync_api import sync_playwright; print\\('sync api ok'\\)\")",
+      "Bash(python3 -m playwright install chromium)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/check_layout.py)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/check_resize.py)",
+      "Bash(dot -Tsvg /Users/christophe.thiebaud/github.com/cthiebaud/gear/config.dot -o /dev/null)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/debug_solve.py)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/debug_solve2.py)",
+      "Bash(node --check /Users/christophe.thiebaud/github.com/cthiebaud/gear/app.js)",
+      "Bash(python3 debug_solve3.py)",
+      "Bash(cat > *)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/debug_widths.py)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/debug_solve4.py)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/debug_solve5.py)",
+      "Bash(python3 /private/tmp/claude-502/-Users-christophe-thiebaud-github-com-cthiebaud-gear/41515f07-78b7-49d8-b1ff-73308334dabb/scratchpad/debug_solve6.py)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}

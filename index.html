@@ -16,7 +16,21 @@
   <header>
     <h1>My Gear</h1>
   </header>
-  <main id="app"></main>
+  <main id="app">
+    <!-- Static markup, not JS-built like everything else in #app -- shows
+         immediately on first paint, before app.js has even finished
+         fetching config.dot/images/the libavoid WASM module, let alone
+         solving a layout. app.js removes it once the diagram is fully
+         routed (see main()); nothing here needs a JS fallback for that
+         not happening, since main() removes it in a `finally`. -->
+    <div class="loading" id="loading">
+      <svg class="spinner" viewBox="0 0 50 50" width="48" height="48" aria-hidden="true">
+        <circle class="spinner-track" cx="25" cy="25" r="20" fill="none" stroke-width="4" />
+        <circle class="spinner-arc" cx="25" cy="25" r="20" fill="none" stroke-width="4" />
+      </svg>
+      <p>Loading…</p>
+    </div>
+  </main>
   <script src="libs/dotparser/dotparser.min.js"></script>
   <script src="app.js?v=1"></script>
 </body>

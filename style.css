@@ -102,6 +102,60 @@ header h1 {
   justify-content: center;
 }
 
+/* Shown until app.js removes it (see main()) -- absolutely positioned and
+   covering #app entirely (not just flex-centered alongside its other
+   child) so it fully occludes the diagram while that's still mid-render,
+   rather than the two ever appearing side by side as plain flex siblings
+   for a frame. */
+.loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.loading p {
+  margin: 0;
+}
+
+.spinner {
+  animation: spinner-rotate 1s linear infinite;
+  /* SVG's default transform-origin is (0,0), unlike HTML elements'
+     50%/50% -- without this, "rotate" spins the whole viewBox around its
+     top-left corner instead of the circle's own center. */
+  transform-origin: center;
+}
+
+.spinner-track {
+  stroke: var(--border);
+}
+
+/* Circumference at r=20 is ~125.7px -- a ~30px dash leaves a ~96px gap,
+   the visible "arc" look; stroke-linecap:round rounds off both ends of
+   that arc instead of leaving it flat-cut. */
+.spinner-arc {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-dasharray: 30 95.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
 /* The libavoid-routed connectors are rendered into one <svg> appended as
    the last child of #app, sized to its own default box unless told
    otherwise -- absolutely-positioned and stretched to cover #app, with
