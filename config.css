@@ -1,0 +1,32 @@
+/* Positions config.dot's "free" nodes (see the vocabulary comment at the
+   top of app.js). Loaded automatically by app.js -- same basename as the
+   .dot file, nothing else references this file by name. Pure CSS: the
+   only contract is the named grid areas .board-grid establishes in
+   style.css (above / left / board / right / below) and that every
+   rendered node carries id="<its DOT id>".
+
+   Edit freely -- this is the one file to touch to move something. */
+
+#ironball {
+  grid-area: above;
+  justify-self: center;
+}
+
+#psplit {
+  grid-area: above;
+  justify-self: start;
+}
+
+#telecaster {
+  grid-area: right;
+  align-self: start;
+}
+
+#pedal_power {
+  grid-area: above;
+  justify-self: end;
+}
+
+#twin_reverb {
+  grid-area: left;
+}

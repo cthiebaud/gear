@@ -1,0 +1,335 @@
+:root {
+  --bg: #f7f7f5;
+  --card-bg: #ffffff;
+  --border: #d9d6cf;
+  --text: #22221f;
+  --muted: #79766d;
+  --accent: #b5442e;
+  --wire: #69665c;
+  --wire-loop: #8a877d;
+  --wire-power: #95a57d;
+  --wire-power-hc: #64754b;
+  --wire-exp: #3a6ea5;
+  --wire-arrow-out: #4f7a3d;
+  --wire-arrow-in: #b23a2a;
+  --board-bg: rgba(0, 0, 0, 0.067);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614;
+    --card-bg: #1f1f1c;
+    --border: #38362f;
+    --text: #ece9e1;
+    --muted: #9a968a;
+    --accent: #e2794f;
+    --wire: #6c675c;
+    --wire-loop: #c2673f;
+    --wire-power: #a3b889;
+    --wire-power-hc: #7d9163;
+    --wire-exp: #7aa7d9;
+    --wire-arrow-out: #7cb56a;
+    --wire-arrow-in: #e0705f;
+    --board-bg: rgba(255, 255, 255, 0.067);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2rem clamp(1rem, 4vw, 3rem) 4rem;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+}
+
+.subtitle {
+  margin: 0 0 2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.subtitle code {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+}
+
+/* Connector paths are drawn in coordinates relative to #app's own
+   top-left (see localRect() in app.js), so #app must be the positioned
+   ancestor those coordinates resolve against. */
+#app {
+  position: relative;
+}
+
+/* The libavoid-routed connectors are rendered into one <svg> appended as
+   the last child of #app, sized to its own default box unless told
+   otherwise -- absolutely-positioned and stretched to cover #app, with
+   overflow left visible so a path segment that pokes past the nominal
+   box (a routed corner right at the edge) still paints instead of being
+   clipped. pointer-events is off since the overlay sits on top of the
+   whole board and shouldn't intercept clicks/hover.
+*/
+.connector-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* width:fit-content (not the block default of 100%) so this shrinks to
+   the diagram's own natural size -- both so fitToViewport (app.js) is
+   measuring the actual content width, not #app's, and so margin:auto
+   has real leftover space to center within once it does. Plain block
+   centering, not flex justify-content: a flex item wider than its
+   container overflows symmetrically on *both* sides, including into
+   negative scroll position that scrollWidth doesn't fully capture,
+   which threw off fitToViewport's math. A block's auto margins can't go
+   negative -- they clamp to 0 -- so an oversized section here just
+   left-aligns and overflows on one side only, which scrollWidth
+   measures correctly. Vertical centering can't use the same auto-margin
+   trick (margin-top:auto doesn't self-center in normal flow), so
+   fitToViewport sets marginTop on this section's *parent* (#app) once
+   it knows the section's final scaled height -- see that function's
+   comment for why the parent and not this element. */
+section.config {
+  width: fit-content;
+  margin: 0 auto 3rem;
+}
+
+.chain {
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 3rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 2rem 0.5rem 1rem;
+}
+
+/* Each routed connector is one <path> in the .connector-overlay svg,
+   tagged with the kind-specific class wireConnectors() adds in app.js --
+   this stylesheet is the *only* place any connector's appearance
+   (color, width, dash) is set. app.js only ever picks which of these
+   classes applies; it carries no color of its own, so there's one place
+   to look, not two. */
+.connector-overlay path {
+  fill: none;
+}
+
+.connector-through {
+  stroke: var(--wire);
+  stroke-width: 2;
+}
+
+.connector-loop-out,
+.connector-loop-in {
+  stroke: var(--wire-loop);
+  stroke-width: 1.8;
+  stroke-dasharray: 6 2;
+}
+
+.connector-fork {
+  stroke: var(--wire);
+  stroke-width: 2;
+}
+
+.connector-power {
+  stroke: var(--wire-power);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+}
+
+/* The PSU's 400mA "high current" outputs (hc9_ / hc12_ ports), vs plain
+   .connector-power for the 100mA "isolated" ones (iso ports) -- see the
+   kind derivation in buildModel. */
+.connector-power-hc {
+  stroke: var(--wire-power-hc);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+}
+
+.connector-exp {
+  stroke: var(--wire-exp);
+  stroke-width: 1.5;
+}
+
+/* Direction-arrow triangles wireConnectors() adds at both ends of every
+   connector -- separate classes from the path's own (rather than reusing
+   .connector-KIND) because that rule's `fill` would otherwise also hit
+   the path and override its explicit fill:none, filling in the whole
+   zigzag as one shape.
+
+   Signal connectors (through/loop-out/loop-in/fork -- the actual audio
+   path) get their arrows colored by direction rather than kind: green
+   leaving the source ("out"), red entering the target ("in") -- same
+   two colors regardless of which of the 4 signal kinds it is, so the
+   line's own color (still kind-specific, see .connector-KIND above)
+   keeps telling you *what* the connection is, while the arrows tell you
+   *which way*. Power and expression connectors aren't part of the
+   signal path, so their arrows just stay their own line color. */
+.connector-arrow-out {
+  fill: var(--wire-arrow-out);
+}
+
+.connector-arrow-in {
+  fill: var(--wire-arrow-in);
+}
+
+.connector-arrow-power {
+  fill: var(--wire-power);
+}
+
+.connector-arrow-power-hc {
+  fill: var(--wire-power-hc);
+}
+
+.connector-arrow-exp {
+  fill: var(--wire-exp);
+}
+
+/* The compass grid every page is: .board sits in the center cell; any
+   place="free" node (guitar, amps, the PSU...) is a direct sibling
+   child, positioned into one of the 4 named side cells -- or fine-tuned
+   further within one -- by a per-config stylesheet targeting it by #id
+   (see loadConfigStylesheet in app.js). A free node with no matching
+   rule just falls into the grid's own auto-placement (the unused corner
+   cells) -- unstyled, not broken.
+
+   "right" spans all 3 rows (unlike "above"/"below"/"left", each just
+   one) -- since it's a single column with only one named area in it top
+   to bottom, that's a plain rectangle, still valid grid-template-areas.
+   Same trick would apply to "left" if something ever needs the full
+   height on that side too. */
+.board-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto auto;
+  grid-template-rows: auto auto auto;
+  grid-template-areas:
+    ".    above  right"
+    "left board right"
+    ".    below  right";
+  align-items: center;
+  justify-items: center;
+  gap: 1rem;
+}
+
+/* The one rectangle standing in for the physical pedalboard: every real
+   pedal in the whole rig goes in here, however deep it sits in a loop or
+   split -- only place="free" nodes (guitar, amps, the PSU...) render
+   outside it, as siblings in .board-grid. */
+.board {
+  grid-area: board;
+  border: 2px solid var(--border);
+  border-radius: 16px;
+  background: var(--board-bg);
+  padding: 1.75rem 2rem;
+}
+
+/* Row-direction: the packed pedal rows on one side, any sidebar item
+   alongside them -- deliberately a sibling of the PSU row, not a
+   container for it, so align-items here only ever sees the pedal rows. */
+.board-lower {
+  display: flex;
+  flex-direction: row;
+  /* flex-start (top), not flex-end -- StroboStomp HD sits at the near
+     (right) end of the bottom row, right beside the sidebar, with its
+     `in` jack on that same right edge partway down. Bottom-aligning the
+     sidebar would put its bulk right where that jack needs clearance to
+     route into; top-aligning leaves that space open underneath it. */
+  align-items: flex-start;
+  gap: 2.5rem;
+}
+
+.board-rows {
+  display: flex;
+  flex-direction: column-reverse;
+  /* Just enough for the one cable crossing rows (Tim V3 -> P-Split) to
+     route without overlapping either row -- not sized for legibility
+     the way .chain's inter-pedal gap is. */
+  gap: 0.1rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.board-sidebar {
+  display: flex;
+  align-items: flex-start;
+}
+
+.board-row.row-reverse {
+  flex-direction: row-reverse;
+}
+
+.node-box {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* Wraps the image when the node has a `url` (see renderNodeBox) -- block
+   so it shrink-wraps the image with no inline baseline gap underneath,
+   same box the bare <img> would otherwise occupy directly. */
+.node-box a {
+  display: block;
+}
+
+.node-box img {
+  display: block;
+  object-fit: contain;
+  margin-bottom: 0.5rem;
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.18));
+}
+
+.node-box img.approx {
+  opacity: 0.92;
+}
+
+.node-box.no-image {
+  justify-content: center;
+  min-height: 90px;
+  width: 120px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.node-box.annotation {
+  min-height: auto;
+  width: auto;
+  padding: 0 0.4rem;
+}
+
+.node-box.annotation .node-name {
+  font-style: italic;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+
+.node-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.node-owner {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+

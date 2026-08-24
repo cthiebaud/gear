@@ -1,0 +1,122 @@
+// Signal chain + power wiring for the board. Standard DOT -- also valid
+// input to real Graphviz (`dot -Tsvg config.dot`), VS Code's DOT
+// preview, GitHub's native .dot rendering, etc. See the comment at the
+// top of app.js for what each piece of vocabulary here means to this
+// app specifically (ports, kind=, owner=/image=).
+digraph pedalboard {
+
+  // --- devices ---------------------------------------------------------
+
+  // telecaster [owner="Fender", image="fen5250041346_01.png",
+  //       label="Limited Edition Made In Japan Super Deluxe Thinline Telecaster"];
+
+  // ironball [owner="Engl", image="Engl-E606.png",
+  //       label="E606 Ironball SE"];
+  // compact60 [owner="AER", image="AER_Compact60_AcousticAmp_SH_04-scaled.jpg",
+  //       label="Compact 60 (2nd Gen) Amplifier"];
+
+  telecaster [owner="Fender", place="free",
+      label="Limited Edition Made In Japan Super Deluxe Thinline Telecaster|<out> out"];
+
+
+  dvp5 [shape=record, owner="Dunlop", url="https://www.jimdunlop.com/volume-x-8-pedal/",
+        label="DVP5 Volume (X) 8 Pedal|<exp> exp"];
+
+  strobostomp_hd [shape=record, owner="Peterson", url="https://www.petersontuners.com/products/stroboStompHD/",
+        label="<in> in|StroboStomp HD|<out> out|<power> pwr"];
+  ua1176 [shape=record, owner="Universal Audio", url="https://www.uaudio.com/products/1176-studio-compressor-pedal",
+        label="<in> in|UAFX 1176 Studio Compressor|<out> out|<power> pwr"];
+  centavo [shape=record, owner="Warm Audio", url="https://warmaudio.com/centavo",
+        label="<in> in|Centavo Gold|<out> out|<power> pwr"];
+  tim_v3 [shape=record, owner="Paul Cochrane", url="https://www.humbuckermusic.com/products/paul-cochrane-tim-v3-overdrive-pedal",
+        label="<in> in|Tim V3|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
+  brig [shape=record, owner="Strymon", url="https://www.strymon.net/product/brig",
+        label="<in> in|Brig|<out> out|<power> pwr"];
+  electric_blue_chorus [shape=record, owner="Mad Professor", url="https://mpamp.com/product/23/electric-blue-chorus",
+        label="<in> in|Electric Blue Chorus|<out> out|<power> pwr"];
+  capistan [shape=record, owner="Strymon", url="https://www.strymon.net/product/elcapistan/",
+        label="<in> in|Capistan|<out> out|<power> pwr|<exp> exp"];
+  bluesky [shape=record, owner="Strymon", url="https://www.strymon.net/product/bluesky/",
+        label="<in> in|BlueSky|<out> out|<power> pwr"];
+
+  // simplifier_x [shape=record, owner="DSM & Humboldt",
+  //       label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
+
+  ironball [owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
+        label="<in> in|E606 Ironball SE X|<out> out|<loopOut> send|<loopIn> return"];
+
+  twin_reverb [shape=record, owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
+        label="<in> in|1974 Twin Reverb"];
+
+  psplit [shape=record, owner="Lehle", place="free", url="https://www.lehle.com/lehle-p-split-iii",
+        label="<in> in|P-Split III|<outDir> dir|<outIso> iso"];
+
+  pedal_power [owner="Voodoo Lab", url="https://voodoolab.com/product/pedal-power-4x4/", label="Pedal Power 4x4"];
+
+  // --- board layout --------------------------------------------------
+  //
+  // Row 0 (StroboStomp HD, 1176, Centavo, Tim V3) isn't listed here --
+  // it fits on one row on its own by real width (see BOARD_ROW_WIDTH_MM
+  // in app.js), so plain automatic packing already puts it where it
+  // belongs. This block only overrides row 1, which wouldn't naturally
+  // end up this way (Brig would otherwise auto-pack onto row 0, after
+  // Tim V3, since there's still room for it there).
+
+  { rank=same; brig; electric_blue_chorus; capistan; bluesky; }
+
+  // --- signal chain ------------------------------------------------------
+
+  telecaster:out -> strobostomp_hd:in;
+  strobostomp_hd:out -> ua1176:in;
+  ua1176:out -> centavo:in;
+  centavo:out -> tim_v3:in;
+
+  // Brig is inserted in Tim's Boost/FX loop.
+  tim_v3:loopOut -> brig:in [kind="loop-out"];
+  brig:out -> tim_v3:loopIn [kind="loop-in"];
+
+  tim_v3:out -> psplit:in;
+
+  electric_blue_chorus:out -> capistan:in;
+  capistan:out -> bluesky:in;
+  dvp5:exp -> capistan:exp [kind=exp];
+
+  // psplit:outIso -> simplifier_x:in [kind=fork];
+  // simplifier_x:loopOut -> electric_blue_chorus:in [kind="loop-out"];
+  // bluesky:out -> simplifier_x:loopIn [kind="loop-in"];
+
+
+      psplit:outIso -> ironball:in [kind=fork];
+      ironball:loopOut -> electric_blue_chorus:in [kind="loop-out"];
+      bluesky:out -> ironball:loopIn [kind="loop-in"];
+
+  // P-Split's DIR output feeds the twin reverb, permanently, in
+  // parallel with the ISO output above.
+  psplit:outDir -> twin_reverb:in [kind=fork];
+
+  // ironball:out -> compact60:in;
+
+  // --- power ---------------------------------------------------------
+  //
+  // Voodoo Lab power supply output assignment -- 10 real outputs:
+  //   hc12_1, hc12_2  = 12V, 400mA each (spare -- nothing here needs 12V)
+  //   hc9_1..hc9_4    = 9V, 400mA each ("high current")
+  //   iso1..iso4      = 9V, 100mA each ("isolated")
+  // Matched against real draws in voltage_&_ampère.txt. Not included:
+  //   - P-Split III: fully passive, needs no power (see its manual, and
+  //     note it has no `power` port declared above).
+  //   - Simplifier X: assumed to run off its own supply like the amps
+  //     do, not this board's power brick.
+  // The 4 HC-hungry pedals (Brig, Capistan, BlueSky, 1176 -- each wants
+  // 250-300mA minimum) exactly fill hc9_1-4; the 4 low-draw pedals
+  // exactly fill iso1-4. Both 12V outputs are unused for now.
+
+  pedal_power:hc9_1 -> brig:power [kind=power];
+  pedal_power:hc9_2 -> capistan:power [kind=power];
+  pedal_power:hc9_3 -> bluesky:power [kind=power];
+  pedal_power:hc9_4 -> ua1176:power [kind=power];
+  pedal_power:iso1 -> strobostomp_hd:power [kind=power];
+  pedal_power:iso2 -> centavo:power [kind=power];
+  pedal_power:iso3 -> tim_v3:power [kind=power];
+  pedal_power:iso4 -> electric_blue_chorus:power [kind=power];
+}

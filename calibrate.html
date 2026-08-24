@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jack calibration</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 0; padding: 1.5rem clamp(1rem,4vw,3rem) 4rem; background: #f7f7f5; color: #22221f; }
+    h1 { font-size: 1.3rem; }
+    p.help { color: #666; max-width: 60em; }
+    .pedal { display: flex; gap: 1.5rem; align-items: flex-start; margin: 2rem 0; padding-bottom: 2rem; border-bottom: 1px solid #ddd; }
+    .pedal h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+    .imgwrap { position: relative; display: inline-block; cursor: crosshair; line-height: 0; }
+    .imgwrap img { display: block; width: 420px; height: auto; }
+    /* box-sizing: border-box so the 2px border is drawn *inside* the 12px
+       box instead of added on top of it -- otherwise the true rendered
+       size is 16px (12px + 2*2px border) while the centering margin below
+       is only offsetting for 12px, leaving the dot 2px off-center from
+       the actual click point. */
+    .dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); pointer-events: none; box-sizing: border-box; }
+    .dot.in { background: #2a7; }
+    .dot.out { background: #d33; }
+    .dot.outDir { background: #d33; }
+    .dot.outIso { background: #e77; }
+    .dot.loopOut { background: #d9a02a; }
+    .dot.loopIn { background: #9a4bd9; }
+    .dot.power { background: #369; }
+    .dot.exp { background: #0aa; }
+    .status { font-size: 0.9rem; margin-top: 0.5rem; }
+    .status .next { font-weight: 600; }
+    .legend { font-size: 0.8rem; color: #555; }
+    .legend span { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 1rem; }
+    .legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    button { font-size: 0.8rem; padding: 0.2rem 0.6rem; margin-top: 0.4rem; cursor: pointer; }
+    textarea { width: 100%; max-width: 900px; height: 320px; font-family: ui-monospace, monospace; font-size: 0.8rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Jack calibration</h1>
+  <p class="help">
+    For each pedal, click the jacks in the order listed under its name (IN first, then OUT, etc).
+    Click again anywhere to redo from the start. The box at the bottom updates live -- copy it back
+    to Claude when you're done with as many pedals as you want to fix.
+  </p>
+  <div class="legend">
+    <span><i style="background:#2a7"></i>in</span>
+    <span><i style="background:#d33"></i>out / outDir</span>
+    <span><i style="background:#e77"></i>outIso</span>
+    <span><i style="background:#d9a02a"></i>loopOut</span>
+    <span><i style="background:#9a4bd9"></i>loopIn</span>
+    <span><i style="background:#369"></i>power</span>
+    <span><i style="background:#0aa"></i>exp</span>
+  </div>
+
+  <div id="pedals"></div>
+
+  <h2>Copy this back</h2>
+  <textarea id="output" readonly></textarea>
+
+<script>
+// key: just a human-readable label for the output box below -- paste
+// results back and they get matched to the right PEDAL_SPECS entry by
+// hand, this file doesn't read app.js's ids directly.
+const ITEMS = [
+  { key: 'dvp5', label: 'Dunlop DVP5 Volume (X) 8', file: 'dunlop-volume-x-8.png', points: ['exp'] },
+  { key: 'strobostomp hd', label: 'Peterson StroboStomp HD', file: 'peterson-strobostomp-hd.png', points: ['in', 'out', 'power'] },
+  { key: '1176', label: 'UA 1176 Studio Compressor', file: 'ua-1176.png', points: ['in', 'out', 'power'] },
+  { key: 'centavo', label: 'Warm Audio Centavo Gold', file: 'warm-audio-centavo.png', points: ['in', 'out', 'power'] },
+  { key: 'tim v3', label: 'Paul Cochrane Tim V3', file: 'paul-c-tim-v3.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power'] },
+  { key: 'brig', label: 'Strymon Brig', file: 'strymon-brig.png', points: ['in', 'out', 'power'] },
+  { key: 'electric blue chorus', label: 'Mad Professor Electric Blue Chorus', file: 'mad-professor-electric-blue.png', points: ['in', 'out', 'power'] },
+  { key: 'capistan', label: 'Strymon El Capistan', file: 'strymon-elcap-v2.png', points: ['in', 'out', 'power', 'exp'] },
+  { key: 'bluesky', label: 'Strymon BlueSky', file: 'strymon-bluesky.png', points: ['in', 'out', 'power'] },
+  // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive -- no power jack.
+  { key: 'p-split', label: 'Lehle P-Split III', file: 'lehle-p-split-iii.png', points: ['in', 'outDir', 'outIso'] },
+  { key: 'simplifier x', label: 'DSM & Humboldt Simplifier X', file: 'dsm-simplifier-x.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power'] },
+  // 10 real outputs: 2x 12V/400mA, 4x 9V/400mA ("hc9"), 4x 9V/100mA ("iso").
+  { key: 'power supply', label: 'Voodoo Lab Pedal Power 4x4', file: 'voodoolab-4x4.png', points: ['hc12_1', 'hc12_2', 'hc9_1', 'hc9_2', 'hc9_3', 'hc9_4', 'iso1', 'iso2', 'iso3', 'iso4'] },
+];
+
+const results = {}; // key -> { pointName: {x,y} }
+
+function render() {
+  const root = document.getElementById('pedals');
+  root.innerHTML = '';
+  for (const item of ITEMS) {
+    const div = document.createElement('div');
+    div.className = 'pedal';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'imgwrap';
+    const img = document.createElement('img');
+    img.src = '/images/' + item.file;
+    wrap.append(img);
+
+    const info = document.createElement('div');
+    const h2 = document.createElement('h2');
+    h2.textContent = item.label;
+    const status = document.createElement('div');
+    status.className = 'status';
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = 'Reset';
+    resetBtn.onclick = () => { delete results[item.key]; renderDots(wrap, item); updateStatus(status, item); updateOutput(); };
+    info.append(h2, status, resetBtn);
+
+    div.append(wrap, info);
+    root.append(div);
+
+    wrap.addEventListener('click', e => {
+      const rect = img.getBoundingClientRect();
+      const x = Math.round(((e.clientX - rect.left) / rect.width) * 1000) / 1000;
+      const y = Math.round(((e.clientY - rect.top) / rect.height) * 1000) / 1000;
+      const rec = results[item.key] || {};
+      const done = Object.keys(rec);
+      const nextPoint = item.points[done.length % item.points.length];
+      rec[nextPoint] = { x, y };
+      results[item.key] = rec;
+      renderDots(wrap, item);
+      updateStatus(status, item);
+      updateOutput();
+    });
+
+    updateStatus(status, item);
+  }
+}
+
+function renderDots(wrap, item) {
+  wrap.querySelectorAll('.dot').forEach(d => d.remove());
+  const rec = results[item.key] || {};
+  const rect = wrap.querySelector('img').getBoundingClientRect();
+  for (const [name, frac] of Object.entries(rec)) {
+    const dot = document.createElement('div');
+    dot.className = 'dot ' + name;
+    dot.style.left = frac.x * rect.width + 'px';
+    dot.style.top = frac.y * rect.height + 'px';
+    wrap.append(dot);
+  }
+}
+
+function updateStatus(status, item) {
+  const rec = results[item.key] || {};
+  const done = Object.keys(rec);
+  const nextPoint = item.points[done.length % item.points.length];
+  status.innerHTML = 'Next click: <span class="next">' + nextPoint + '</span> &nbsp; (' + done.length + '/' + item.points.length + (done.length >= item.points.length ? ', click again to redo' : '') + ')';
+}
+
+function updateOutput() {
+  const lines = [];
+  for (const item of ITEMS) {
+    const rec = results[item.key];
+    if (!rec) continue;
+    const parts = item.points
+      .filter(p => rec[p])
+      .map(p => `${p}: { x: ${rec[p].x}, y: ${rec[p].y} }`);
+    if (parts.length) lines.push(`${item.key} (${item.label}):\n  ` + parts.join('\n  '));
+  }
+  document.getElementById('output').value = lines.join('\n\n');
+}
+
+render();
+window.addEventListener('resize', render);
+</script>
+</body>
+</html>
