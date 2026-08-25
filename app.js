@@ -177,7 +177,7 @@ const PEDAL_SPECS = {
   // portrait-oriented crop, unlike every other pedal here.
   dvp5: {
     file: 'dunlop-volume-x-8.png',
-    widthMm: 85,
+    widthMm: 67,
     sidebar: true, // rendered next to the packed rows, not packed into one -- see renderPage
     // Click-calibrated via calibrate.html. Jack panel, left to right:
     // OUTPUT, TUNER, EXP, INPUT.
@@ -185,7 +185,7 @@ const PEDAL_SPECS = {
   },
   ironball: {
     file: 'Engl-E606.png',
-    widthMm: 240,
+    widthMm: 200,
     in: { x: 0.5, y: 0 },
     out: { x: 0.212, y: 0.9 },
     loopIn: { x: 0.667, y: 0.915 },
@@ -197,8 +197,8 @@ const PEDAL_SPECS = {
   // top-left placeholder so a connector has somewhere to land, same
   // convention as any other `approx`-flagged point.
   twin_reverb: {
-    file: 'fender-twin-reverb.png',
-    widthMm: 250, // 26.25in, Fender '68 Custom Twin Reverb spec sheet
+    file: 'fender-twin-reverb-1974-cutout-2.png',
+    widthMm: 200, 
     approx: true,
     in: { x: 0.5, y: 0.03 },
   },
@@ -1205,6 +1205,12 @@ function ensureMinStubPair(points, fromEdge, toEdge, fromMinLen, toMinLen) {
 const ARROW_LEN_PX = 9;
 const ARROW_HALF_WIDTH_PX = 4;
 const ARROW_GAP_PX = 3; // breathing room between the pedal border and the arrowhead itself
+const POWER_BOLT_SIZE_PX = 11;
+// svg/flash-lightning-svgrepo-com.svg's own <path d> and viewBox, embedded
+// directly rather than loaded at runtime -- it's one fixed glyph, not
+// user content, so there's nothing to gain from fetching it separately.
+const POWER_BOLT_D = 'M34.137 20.862c-.475-.761-1.307-1.232-2.204-1.232h-6.356l6.707-16.032c.335-.802.248-1.717-.234-2.44C31.567.435 30.757 0 29.888 0h-8.444c-1.15 0-2.163.761-2.49 1.863l-7.283 24.565c-.233.786-.082 1.627.409 2.284.49.657 1.261 1.035 2.081 1.035h6.807l-1.189 14.106c-.083.987.548 1.898 1.503 2.164.955.264 1.962-.187 2.399-1.076l10.582-21.56c.396-.803.347-1.758-.126-2.519';
+const POWER_BOLT_VIEWBOX = 46.093;
 
 function unit(dx, dy) {
   const len = Math.hypot(dx, dy) || 1;
@@ -1222,42 +1228,96 @@ function trianglePointsStr(base, tip, halfWidth) {
   return `${tx},${ty} ${bx + px * halfWidth},${by + py * halfWidth} ${bx - px * halfWidth},${by - py * halfWidth}`;
 }
 
-// Direction arrows for one routed connector: a small triangle just past
-// the source pin pointing forward into the wire (base pulled ARROW_GAP_PX
-// off the pedal border, so the arrowhead doesn't sit right on top of it),
-// and the mirror-image arrowhead at the target pin (tip held back the
-// same gap, base further still into the wire) -- built from the
-// polyline's own first/last segments, so they follow whatever libavoid
-// actually routed, not an assumed straight line. The wire itself (drawn
-// separately from `points`) still runs all the way to the actual pin.
+// A rhombus ("losange") centered on `center`, elongated along `dir` --
+// unlike trianglePointsStr's arrowhead, this reads the same regardless of
+// which way `dir` points, which is the point: an exp cable's signal
+// flows both ways, so its endpoint marker shouldn't claim a direction.
+function diamondPointsStr(center, dir, halfLen, halfWidth) {
+  const [cx, cy] = center, [dx, dy] = dir;
+  const px = -dy, py = dx;
+  return [
+    [cx + dx * halfLen, cy + dy * halfLen],
+    [cx + px * halfWidth, cy + py * halfWidth],
+    [cx - dx * halfLen, cy - dy * halfLen],
+    [cx - px * halfWidth, cy - py * halfWidth],
+  ].map(([x, y]) => `${x},${y}`).join(' ');
+}
+
+// End-of-connector markers for one routed connector, shape picked by
+// kind: a small triangle (arrowhead) at both ends for the 4 signal kinds,
+// a diamond at both ends for exp, a lightning bolt at the target end only
+// for power. Each is positioned just past its pin, pulled ARROW_GAP_PX off
+// the pedal border so the marker doesn't sit right on top of it -- built
+// from the polyline's own first/last segments, so they follow whatever
+// libavoid actually routed, not an assumed straight line. The wire itself
+// (drawn separately from `points`) still runs all the way to the actual
+// pin.
 //
-// For a signal kind (SIGNAL_KINDS), the two arrows are classed by which
-// end they're on -- .connector-arrow-out / -in, colored green/red in
-// style.css -- rather than by kind, so a loop-out/loop-in pair (which
+// For a signal kind (SIGNAL_KINDS), the two arrowheads are classed by
+// which end they're on -- .connector-arrow-out / -in, colored green/red
+// in style.css -- rather than by kind, so a loop-out/loop-in pair (which
 // would otherwise look identical) still reads as two opposite flows
-// regardless of which of the 4 signal kinds it is. Power/exp arrows keep
-// their own kind's class (and thus color) on both ends, same as the
-// line itself.
+// regardless of which of the 4 signal kinds it is. Power bolts and exp
+// diamonds keep their own kind's class (and thus color) on both ends,
+// same as the line itself -- neither shape claims a direction, so there's
+// nothing for the two ends to disagree about.
 function connectorArrows(points, kind) {
   const [sx, sy] = points[0], [sx2, sy2] = points[1];
   const startForward = unit(sx2 - sx, sy2 - sy);
-  const startBase = [sx + startForward[0] * ARROW_GAP_PX, sy + startForward[1] * ARROW_GAP_PX];
-  const startTip = [sx + startForward[0] * (ARROW_GAP_PX + ARROW_LEN_PX), sy + startForward[1] * (ARROW_GAP_PX + ARROW_LEN_PX)];
 
   const [ex, ey] = points[points.length - 1], [ex2, ey2] = points[points.length - 2];
   const endForward = unit(ex - ex2, ey - ey2);
-  const endTip = [ex - endForward[0] * ARROW_GAP_PX, ey - endForward[1] * ARROW_GAP_PX];
-  const endBase = [ex - endForward[0] * (ARROW_GAP_PX + ARROW_LEN_PX), ey - endForward[1] * (ARROW_GAP_PX + ARROW_LEN_PX)];
 
-  const isSignal = SIGNAL_KINDS.has(kind);
-  const ends = [
-    { pts: trianglePointsStr(startBase, startTip, ARROW_HALF_WIDTH_PX), cls: isSignal ? 'out' : kind },
-    { pts: trianglePointsStr(endBase, endTip, ARROW_HALF_WIDTH_PX), cls: isSignal ? 'in' : kind },
-  ];
-  return ends.map(({ pts, cls }) => {
+  const isPower = kind === 'power' || kind === 'power-hc';
+
+  let ends;
+  if (kind === 'exp') {
+    const mid = ARROW_GAP_PX + ARROW_LEN_PX / 2;
+    const startCenter = [sx + startForward[0] * mid, sy + startForward[1] * mid];
+    const endCenter = [ex - endForward[0] * mid, ey - endForward[1] * mid];
+    ends = [
+      { shape: 'diamond', pts: diamondPointsStr(startCenter, startForward, ARROW_LEN_PX / 2, ARROW_HALF_WIDTH_PX), cls: 'exp' },
+      { shape: 'diamond', pts: diamondPointsStr(endCenter, endForward, ARROW_LEN_PX / 2, ARROW_HALF_WIDTH_PX), cls: 'exp' },
+    ];
+  } else if (isPower) {
+    // A lightning bolt at the pedal end only -- reads as "power" at a
+    // glance without claiming a flow direction. No marker at the PSU end:
+    // that it supplies power is already obvious from what it is.
+    const mid = ARROW_GAP_PX + POWER_BOLT_SIZE_PX / 2;
+    const endCenter = [ex - endForward[0] * mid, ey - endForward[1] * mid];
+    ends = [
+      { shape: 'bolt', cx: endCenter[0], cy: endCenter[1], cls: kind },
+    ];
+  } else {
+    const startBase = [sx + startForward[0] * ARROW_GAP_PX, sy + startForward[1] * ARROW_GAP_PX];
+    const startTip = [sx + startForward[0] * (ARROW_GAP_PX + ARROW_LEN_PX), sy + startForward[1] * (ARROW_GAP_PX + ARROW_LEN_PX)];
+    const endTip = [ex - endForward[0] * ARROW_GAP_PX, ey - endForward[1] * ARROW_GAP_PX];
+    const endBase = [ex - endForward[0] * (ARROW_GAP_PX + ARROW_LEN_PX), ey - endForward[1] * (ARROW_GAP_PX + ARROW_LEN_PX)];
+    const isSignal = SIGNAL_KINDS.has(kind);
+    ends = [
+      { shape: 'triangle', pts: trianglePointsStr(startBase, startTip, ARROW_HALF_WIDTH_PX), cls: isSignal ? 'out' : kind },
+      { shape: 'triangle', pts: trianglePointsStr(endBase, endTip, ARROW_HALF_WIDTH_PX), cls: isSignal ? 'in' : kind },
+    ];
+  }
+  return ends.map((end) => {
+    if (end.shape === 'bolt') {
+      // A nested <svg> reproduces the icon's own viewBox scaling instead
+      // of hand-computing a transform from its path's bounding box.
+      const nested = document.createElementNS(SVG_NS, 'svg');
+      nested.setAttribute('x', end.cx - POWER_BOLT_SIZE_PX / 2);
+      nested.setAttribute('y', end.cy - POWER_BOLT_SIZE_PX / 2);
+      nested.setAttribute('width', POWER_BOLT_SIZE_PX);
+      nested.setAttribute('height', POWER_BOLT_SIZE_PX);
+      nested.setAttribute('viewBox', `0 0 ${POWER_BOLT_VIEWBOX} ${POWER_BOLT_VIEWBOX}`);
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', POWER_BOLT_D);
+      path.setAttribute('class', 'connector-arrow-' + end.cls);
+      nested.append(path);
+      return nested;
+    }
     const polygon = document.createElementNS(SVG_NS, 'polygon');
-    polygon.setAttribute('points', pts);
-    polygon.setAttribute('class', 'connector-arrow-' + cls);
+    polygon.setAttribute('points', end.pts);
+    polygon.setAttribute('class', 'connector-arrow-' + end.cls);
     return polygon;
   });
 }
@@ -1432,15 +1492,13 @@ function wireConnectors(Avoid, root, sections) {
     path.setAttribute('class', 'connector-' + kind);
     path.setAttribute('data-link', label);
     svg.append(path);
-    // No direction arrows on an exp cable -- unlike audio (through/loop/
-    // fork, one-way source->target) or power (PSU->pedal, also one-way),
-    // an expression jack is a two-way control loop: the receiving pedal
-    // supplies a reference voltage out to the pot, the wiper position
-    // comes back in on the same cable. An arrowhead would claim a
-    // directionality that isn't really there.
-    if (kind !== 'exp') {
-      for (const arrow of connectorArrows(points, kind)) svg.append(arrow);
-    }
+    // Unlike audio (through/loop/fork, one-way source->target) or power
+    // (PSU->pedal, also one-way), an expression jack is a two-way control
+    // loop: the receiving pedal supplies a reference voltage out to the
+    // pot, the wiper position comes back in on the same cable. So exp
+    // gets a non-directional diamond marker at both ends instead of an
+    // arrowhead -- connectorArrows() picks the shape by kind.
+    for (const arrow of connectorArrows(points, kind)) svg.append(arrow);
   }
   root.append(svg);
 }

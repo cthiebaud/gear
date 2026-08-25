@@ -201,13 +201,16 @@ section.config {
   padding: calc(2rem * var(--ui-scale)) calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
 }
 
-/* Each routed connector is one <path> in the .connector-overlay svg,
-   tagged with the kind-specific class wireConnectors() adds in app.js --
-   this stylesheet is the *only* place any connector's appearance
+/* Each routed connector is one <path> directly under the .connector-overlay
+   svg, tagged with the kind-specific class wireConnectors() adds in app.js
+   -- this stylesheet is the *only* place any connector's appearance
    (color, width, dash) is set. app.js only ever picks which of these
    classes applies; it carries no color of its own, so there's one place
-   to look, not two. */
-.connector-overlay path {
+   to look, not two. Scoped to direct children only so it doesn't reach the
+   power bolt's <path>, nested inside its own <svg> for icon scaling (see
+   connectorArrows) -- that one needs its .connector-arrow-power(-hc) fill
+   to actually apply. */
+.connector-overlay > path {
   fill: none;
 }
 
@@ -278,8 +281,14 @@ section.config {
   fill: var(--wire-power-hc);
 }
 
+/* White fill (var(--card-bg), so it still works in dark mode) rather than
+   a solid blue blob -- an outlined diamond stays legible where signal
+   arrowheads or other wires cross right behind it, which a filled shape
+   in the same color as the line it caps doesn't. */
 .connector-arrow-exp {
-  fill: var(--wire-exp);
+  fill: var(--card-bg);
+  stroke: var(--wire-exp);
+  stroke-width: 1.2;
 }
 
 /* Every node on the page -- the rectangle and every place="free" node
