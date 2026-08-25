@@ -28,16 +28,15 @@
 //                                  board rectangle (independent of
 //                                  whether it happens to have a
 //                                  PEDAL_SPECS entry for real-width
-//                                  scaling -- e.g. the telecaster has one
-//                                  just so its image scales like a
+//                                  scaling, which some free nodes have
+//                                  just so their image scales like a
 //                                  pedal's) instead of the default,
 //                                  "on top of the board", packed into the
 //                                  bordered rectangle's rows. *Where*
 //                                  around the board a "free" node actually
-//                                  ends up (which compass side, and its
-//                                  size if it's one of the 3 flagged in
-//                                  FLEXIBLE_SIZE_IDS) is computed, not
-//                                  configured -- see placeFreeItems.
+//                                  ends up (which compass side) is
+//                                  computed, not configured -- see
+//                                  placeFreeItems.
 //   id:port -> id2:port2 [kind="..."]
 //                               -> a connection. kind is through (the
 //                                  default, omit it) | loop-out | loop-in
@@ -80,7 +79,7 @@ const PX_PER_MM = 2.2;
 // scratchpad/analyze_pedals.py). Convention: input on the right, output
 // on the left, matching how this rig is actually wired -- so `in` is
 // always the larger x of the pair. Port names here must match the
-// `<port>` names declared in that pedal's DOT record/HTML label exactly
+// `<port>` names declared in that device's DOT record/HTML label exactly
 // -- that's the only place the two are tied together. `approx: true`
 // means the photo doesn't actually show the jacks (e.g. a top-down shot)
 // and the jack point is a placeholder, not a reading. `stub: N` overrides,
@@ -92,149 +91,12 @@ const PX_PER_MM = 2.2;
 // else about routing changes: the connector's own lane index is still
 // consumed as usual (so later connectors on the same node still get
 // spaced past it), only the length it's compared against is replaced.
-const PEDAL_SPECS = {
-  telecaster :{
-    file: 'telecaster.png',
-    widthMm: 200,
-    out: { x: 0.94, y: 0.94 },
-  },
-  strobostomp_hd: {
-    file: 'peterson-strobostomp-hd.png',
-    widthMm: 66,
-    in: { x: 1, y: 0.55 },
-    out: { x: 0, y: 0.55, stub: 10 },
-    power: { x: 0.788, y: 0 },
-  },
-  ua1176: {
-    file: 'ua-1176.png',
-    widthMm: 65,
-    in: { x: 0.705, y: 0 },
-    out: { x: 0.285, y: 0 },
-    power: { x: 0.5, y: 0.05 },
-  },
-  centavo: {
-    file: 'warm-audio-centavo.png',
-    widthMm: 170,
-    in: { x: 0.655, y: 0 },
-    out: { x: 0.343, y: 0, stub: 24 },
-    power: { x: 0.221, y: 0.015 },
-  },
-  tim_v3: {
-    file: 'paul-c-tim-v3.png',
-    widthMm: 117,
-    in: { x: 0.833, y: 0 },
-    out: { x: 0.167, y: 0, stub: 24  },
-    // Brig is inserted in Tim's Boost/FX loop, off the dedicated loop jacks.
-    loopOut: { x: 0.667, y: 0 },
-    loopIn: { x: 0.333, y: 0 },
-    power: { x: 0.5, y: 0.03 },
-  },
-  brig: {
-    file: 'strymon-brig.png',
-    widthMm: 68.6,
-    in: { x: 0.817, y: 0 },
-    out: { x: 0.579, y: 0 },
-    power: { x: 0.125, y: 0.027 },
-  },
-  electric_blue_chorus: {
-    file: 'mad-professor-electric-blue.png',
-    widthMm: 58,
-    in: { x: 1, y: 0.5, stub: 24},
-    out: { x: 0, y: 0.5 },
-    power: { x: 0.962, y: 0.7, stub: 40},
-  },
-  capistan: {
-    file: 'strymon-elcap-v2.png',
-    widthMm: 101.6,
-    in: { x: 0.85, y: 0 },
-    out: { x: 0.655, y: 0, stub: 30},
-    exp: { x: 0.462, y: 0 },
-    power: { x: 0.12, y: 0.025 },
-  },
-  bluesky: {
-    file: 'strymon-bluesky.png',
-    widthMm: 101.6,
-    in: { x: 0.85, y: 0 },
-    out: { x: 0.271, y: 0 },
-    power: { x: 0.12, y: 0.025 },
-  },
-  psplit: {
-    file: 'lehle-p-split-iii.png',
-    widthMm: 91.4,
-    // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive (no
-    // power jack, so no `power` entry -- a device just doesn't get wired
-    // to the PSU if it has no port for it).
-    in: { x: 0.857, y: 0, stub: 108 },
-    outDir: { x: 0.624, y: 0 },
-    outIso: { x: 0.136, y: 0 },
-  },
-  simplifier_x: {
-    file: 'dsm-simplifier-x.png',
-    widthMm: 125,
-    in: { x: 0.888, y: 1 },
-    out: { x: 0.212, y: 1 },
-    loopOut: { x: 0.619, y: 1 },
-    loopIn: { x: 0.348, y: 1 },
-    power: { x: 0.117, y: 0.039 },
-  },
-  // Real hardware, per the owner: 9.3cm wide x 20cm deep -- notably taller
-  // (front-to-back) than any stompbox here, which is expected for an
-  // expression pedal and is why it gets its own sidebar next to the
-  // packed rows instead of joining them (see renderPage). Photographed
-  // from the toe end looking back at the jack panel, so this is a
-  // portrait-oriented crop, unlike every other pedal here.
-  dvp5: {
-    file: 'dunlop-volume-x-8-cutout.png',
-    widthMm: 50,
-    sidebar: true, // rendered next to the packed rows, not packed into one -- see renderPage
-    // Click-calibrated via calibrate.html. Jack panel, left to right:
-    // OUTPUT, TUNER, EXP, INPUT.
-    exp: { x: 0.421, y: 0.005 }
-  },
-  ironball: {
-    file: 'Engl-E606.png',
-    widthMm: 200,
-    in: { x: 0.5, y: 0 },
-    out: { x: 0.212, y: 0.9 },
-    loopOut: { x: 0.667, y: 0.915 },
-    loopIn: { x: 0.333, y: 0.925 },
-  },
-  // Only here so its image scales to true width like a pedal's, same
-  // reasoning as the telecaster. `in` isn't a real calibrated jack (no
-  // input port is actually visible in the product photo used) -- just a
-  // top-left placeholder so a connector has somewhere to land, same
-  // convention as any other `approx`-flagged point.
-  twin_reverb: {
-    file: 'fender-twin-reverb-1974-cutout.png',
-    widthMm: 240, 
-    approx: true,
-    in: { x: 0.5, y: 0.03 },
-  },
-};
-
-// Voodoo Lab power supply: 10 real DC outputs, calibrated by clicking
-// the actual unit's photo (calibrate.html) -- 2 @ 12V/400mA (hc12), 4 @
-// 9V/400mA ("high current" -- hc9), 4 @ 9V/100mA ("isolated" -- iso).
-// Matched against pedal power draws in voltage_&_ampère.txt -- see
-// config.dot's power edges for the actual assignment. Synthesized
-// directly in buildModel rather than through PEDAL_SPECS -- it's not
-// "one more pedal" for row-packing purposes, and always place="free"
-// (nothing in config.dot has to say so).
-const PEDAL_POWER_ID = 'pedal_power';
-const POWER_SUPPLY = {
-  file: 'voodoolab-4x4.png',
-  widthMm: 176,
-  hc9_1:  { x: 0.065, y: 1 },
-  hc12_1: { x: 0.115, y: 1 },
-  hc9_2:  { x: 0.200, y: 1 },
-  hc12_2: { x: 0.255, y: 1 },
-  iso1:   { x: 0.333, y: 1 },
-  iso2:   { x: 0.413, y: 1 },
-  iso3:   { x: 0.697, y: 1 },
-  iso4:   { x: 0.775, y: 1 },
-  hc9_3:  { x: 0.853, y: 1 },
-  hc9_4:  { x: 0.930, y: 1 },
-};
+// `sidebar: true` renders the node beside the packed rows instead of
+// inside one (see renderPage). Loaded at runtime from a JSON file
+// (`${configName}.json`, see main()) rather than baked in here, same
+// "edit data, not code" reasoning as config.dot itself; empty until
+// then.
+let PEDAL_SPECS = {};
 
 const DEFAULT_WIDTH_PX = 120;
 
@@ -312,8 +174,8 @@ function attrsToObject(attrList) {
 // ends up in -- CSS can't move an element between parents), deliberately
 // independent of whether the node has a PEDAL_SPECS entry (that's just
 // physical calibration -- real width, jack coordinates -- and plenty of
-// free nodes have one too, e.g. the telecaster, just so their image
-// scales to true width like a pedal's).
+// free nodes have one too, just so their image scales to true width like
+// a pedal's).
 const VALID_PLACES = new Set(['board', 'free']);
 
 function makeNode(id, attrs) {
@@ -341,11 +203,11 @@ function makeNode(id, attrs) {
 // every edge, in file order. That order is also board layout order (see
 // packRows) -- same role the old custom syntax's line order played.
 //
-// pedal_power is handled specially: it's a real node in the DOT graph
-// (so `pedal_power:hc9_1 -> brig:power [kind=power]` reads naturally),
-// but it doesn't go through PEDAL_SPECS or ordinary row-packing -- it
-// gets its own synthesized node (matching POWER_SUPPLY) and its own row,
-// same as before.
+// A power supply node is an ordinary node like any other (see the
+// PEDAL_SPECS entry) -- it just always has place="free" in config.dot,
+// so it's laid out beside the board like the guitar or an amp rather
+// than packed into a row, and its `id:port -> id2:port2` edges read the
+// same as any other device's.
 function buildModel(ast) {
   const graph = ast[0];
   if (!graph) throw new Error('config.dot: no graph found');
@@ -400,33 +262,13 @@ function buildModel(ast) {
   }
   (graph.children || []).forEach(walk);
 
-  const psu = {
-    id: PEDAL_POWER_ID,
-    name: 'Pedal Power 4x4',
-    owner: 'Voodoo Lab',
-    place: 'free',
-    spec: POWER_SUPPLY,
-    image: '/images/' + POWER_SUPPLY.file,
-    url: (nodeAttrs.get(PEDAL_POWER_ID) || {}).url || null,
-    el: null,
-  };
   const nodes = new Map(); // id -> node object
   for (const id of order) {
-    nodes.set(id, id === PEDAL_POWER_ID ? psu : makeNode(id, nodeAttrs.get(id)));
+    nodes.set(id, makeNode(id, nodeAttrs.get(id)));
   }
 
   const links = edges.map(e => {
-    let kind = e.attrs.kind || 'through';
-    // Power edges get a more specific kind for rendering purposes --
-    // 'power-hc' for the 400mA "high current" outputs (hc9_*/hc12_* --
-    // see POWER_SUPPLY) vs plain 'power' for the 100mA "isolated" ones
-    // (iso*) -- derived from the PSU-side port name rather than a
-    // separate config.dot attribute, since that naming already encodes
-    // it and config.dot shouldn't have to repeat it.
-    if (kind === 'power') {
-      const psuPort = e.fromId === PEDAL_POWER_ID ? e.fromPort : (e.toId === PEDAL_POWER_ID ? e.toPort : null);
-      if (psuPort && psuPort.startsWith('hc')) kind = 'power-hc';
-    }
+    const kind = e.attrs.kind || 'through';
     return {
       from: nodes.get(e.fromId),
       fromPoint: e.fromPort,
@@ -437,17 +279,11 @@ function buildModel(ast) {
   });
 
   // Board layout order, in first-seen order, spec or not (renderPage
-  // splits it by `place` from there). The PSU is only included if it's
-  // actually wired to something -- same as any other node, it just has
-  // no way to end up unwired other than a config.dot that doesn't
-  // bother, since it's synthesized rather than declared.
-  const psuHasPower = links.some(l => l.from === psu || l.to === psu);
-  const nodeList = order
-    .filter(id => id !== PEDAL_POWER_ID || psuHasPower)
-    .map(id => nodes.get(id));
+  // splits it by `place` from there).
+  const nodeList = order.map(id => nodes.get(id));
   const rowGroups = rankGroups.map(ids => ids.map(id => nodes.get(id)));
 
-  return { nodeList, links, psu, rowGroups };
+  return { nodeList, links, rowGroups };
 }
 
 // --- Renderer -----------------------------------------------------------
@@ -483,8 +319,8 @@ function renderNodeBox(node, baseWidthPx) {
   if (node.image) {
     // Without an explicit width, an absolutely-positioned box (every free
     // node, see renderPage) shrink-wraps to its widest *content* -- for a
-    // long device name (the Telecaster's especially) that's the label
-    // text on one unwrapped line, not the image, so the box silently
+    // long device name that's the label text on one unwrapped line, not
+    // the image, so the box silently
     // renders far wider than nodeSizePx ever told the placement math to
     // expect, and everything downstream of that width (this node's own
     // position, anything placed relative to it) ends up wrong -- this is
@@ -533,18 +369,11 @@ function renderNodeBox(node, baseWidthPx) {
 
 const ROW_GAP_X_PX = 48;    // horizontal gap between pedals in a row -- keep in sync with .chain's base gap in style.css
 const ROW_GAP_Y_PX = 1.6;   // vertical gap between stacked rows -- keep in sync with .board-rows's base gap
-const BOARD_LOWER_GAP_PX = 40; // gap between the row-stack and the sidebar (DVP5) -- keep in sync with .board-lower's base gap
+const BOARD_LOWER_GAP_PX = 40; // gap between the row-stack and the sidebar -- keep in sync with .board-lower's base gap
 const BOARD_PADDING_X_PX = 32; // .board left/right padding, base
 const BOARD_PADDING_Y_PX = 28; // .board top/bottom padding, base
 const COMPASS_GAP_PX = 16;  // gap between free items sharing a compass side, and between a side and the board
 const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for any realistic pedal count
-
-// The 3 items rule 4 allows to deviate from true real-world scale --
-// everything else (pedals, PSU, DVP5, P-Split) always renders at true
-// relative size. Sized against a fraction of the winning row height (see
-// nodeSizePx) rather than their own real width/height.
-const FLEXIBLE_SIZE_IDS = new Set(['telecaster', 'twin_reverb', 'ironball']);
-const FLEX_MIN_RATIO = 0.5, FLEX_MAX_RATIO = 2.5;
 
 // Power edges get a much lower weight in the wire-length objective than
 // signal/exp cables: nobody's judging this rig by how short its power
@@ -552,11 +381,11 @@ const FLEX_MIN_RATIO = 0.5, FLEX_MAX_RATIO = 2.5;
 // would happily wreck a clean signal layout just to shave a few px off a
 // power cable. Not zero -- a small weight still keeps the PSU from landing
 // somewhere arbitrary when it's otherwise a tie -- just far from equal.
-const WIRE_WEIGHT = { power: 0, 'power-hc': 0 };
+const WIRE_WEIGHT = { power: 0 };
 function wireWeight(kind) { return WIRE_WEIGHT[kind] ?? 1; }
 
 // True real-world-scale width, before the solved `scale` is applied --
-// every node except the 3 FLEXIBLE_SIZE_IDS ones renders at this.
+// every node renders at this.
 function nodeRealWidthPx(node) {
   return node.spec ? node.spec.widthMm * PX_PER_MM : DEFAULT_WIDTH_PX;
 }
@@ -569,29 +398,20 @@ function nodeAspect(node) {
   return node.image ? (node.naturalH / node.naturalW) : (90 / 120); // no-image boxes: match .node-box.no-image's fixed footprint
 }
 
-// A node's base (scale=1) box size. Real-scale for everything except the 3
-// flexible items, which instead target a height clamped to
-// [FLEX_MIN_RATIO, FLEX_MAX_RATIO] * refRowH (the shortest row in the
-// winning row plan) -- see the FLEXIBLE_SIZE_IDS comment above.
-// `h` here is the node-box's *total* footprint (image + label block below
-// it -- see measureLabelHeights), not just the image: every position in
-// this file is now rendered literally (position:absolute, see renderPage),
-// so a node's real footprint has to include everything CSS would
-// otherwise have quietly wrapped around, or two boxes placed "just
-// touching" by this math end up actually overlapping once each one's
-// name/owner text renders for real. `w` stays image-only -- it's what
-// sizedImage actually sets on the <img>, and nothing here reserves extra
+// A node's base (scale=1) box size, at true real-world scale. `h` here is
+// the node-box's *total* footprint (image + label block below it -- see
+// measureLabelHeights), not just the image: every position in this file
+// is now rendered literally (position:absolute, see renderPage), so a
+// node's real footprint has to include everything CSS would otherwise
+// have quietly wrapped around, or two boxes placed "just touching" by
+// this math end up actually overlapping once each one's name/owner text
+// renders for real. `w` stays image-only -- it's what sizedImage
+// actually sets on the <img>, and nothing here reserves extra
 // *horizontal* space for a label wider than its own image (a longstanding
 // simplification, not new).
-function nodeSizePx(node, refRowH) {
+function nodeSizePx(node) {
   const aspect = nodeAspect(node);
   const labelH = node.labelH || 0;
-  if (FLEXIBLE_SIZE_IDS.has(node.id)) {
-    const naturalTotalH = nodeRealWidthPx(node) * aspect + labelH;
-    const totalH = Math.max(FLEX_MIN_RATIO * refRowH, Math.min(FLEX_MAX_RATIO * refRowH, naturalTotalH));
-    const imgH = Math.max(1, totalH - labelH);
-    return { w: imgH / aspect, h: totalH };
-  }
   const w = nodeRealWidthPx(node);
   return { w, h: w * aspect + labelH };
 }
@@ -741,8 +561,8 @@ function* candidateRowPlans(onBoard, rowGroups) {
 // *Which* of the two flip states is better is a real, and cheap, second
 // thing to search for (see solveLayout) -- worth doing because it's the
 // only lever that changes which literal edge of the rectangle a given
-// pedal (e.g. StroboStomp, wired to the guitar) ends up on, which a
-// free node's own wire length (see placeFreeItems) very much cares about,
+// pedal ends up on, which a free node's own wire length (see
+// placeFreeItems) very much cares about,
 // and because a *single* row has no adjacent row to alternate against in
 // the first place, so without a flip choice it would always render
 // mirrored for no reason at all.
@@ -769,7 +589,7 @@ function measureRows(rows, flip) {
     let x = 0;
     let rowH = 0;
     row.forEach((node, i) => {
-      const { w, h } = nodeSizePx(node, 0); // refRowH unused for non-flexible on-board nodes
+      const { w, h } = nodeSizePx(node);
       if (i > 0) x += ROW_GAP_X_PX;
       pos.set(node, { x, y, w, h });
       x += w;
@@ -844,9 +664,9 @@ function nearestEdge(boardW, boardH, px, py) {
 // whatever's known at this point in the 2-pass placement below (see
 // placeFreeItems) -- board nodes are always in it; a *free* node only
 // once its own first-pass position has been computed, which is exactly
-// what makes the second pass able to anchor a free<->free edge (e.g.
-// P-Split <-> Ironball, or Twin Reverb, which connects to nothing *but*
-// P-Split) that the first pass necessarily couldn't.
+// what makes the second pass able to anchor a free<->free edge -- even
+// one between two free nodes that connect to nothing else -- that the
+// first pass necessarily couldn't.
 function freeNodeAnchor(node, links, resolvedPos) {
   let sx = 0, sy = 0, sw = 0;
   for (const l of links) {
@@ -866,10 +686,10 @@ function freeNodeAnchor(node, links, resolvedPos) {
 // Assigns every free node to whichever rectangle edge its own anchor (see
 // freeNodeAnchor) is nearest, grouped by edge -- one round of the 2-pass
 // process in placeFreeItems.
-function assignEdges(freeNodes, links, resolvedPos, boardW, boardH, refRowH) {
+function assignEdges(freeNodes, links, resolvedPos, boardW, boardH) {
   const bySide = { above: [], left: [], right: [], below: [] };
   for (const node of freeNodes) {
-    const { w, h } = nodeSizePx(node, refRowH);
+    const { w, h } = nodeSizePx(node);
     const anchor = freeNodeAnchor(node, links, resolvedPos);
     // No resolvable anchor at all (not even a free<->free one) can only
     // happen if a node has no edges whatsoever -- buildModel wouldn't have
@@ -927,24 +747,24 @@ function layoutBySide(bySide, boardW, boardH) {
   return { pos, extents };
 }
 
-// Places every free node -- guitar, amps, the PSU, DVP5's neighbors --
-// around the rectangle at its own real (x, y), not bucketed into a fixed
+// Places every free node -- guitar, amps, the PSU, and so on -- around
+// the rectangle at its own real (x, y), not bucketed into a fixed
 // compass column/row the way a CSS grid would force it to be (a grid
-// area's align-items:center throws away exactly the "how far along this
-// edge" information the search computes -- see the plan/commit message
-// for why that was the actual bug behind free items landing far from
-// what they connect to). Two rounds: the first can only anchor a node via
-// its connections to *board* nodes (nothing free has a position yet); the
-// second re-resolves every node's anchor with the first round's free-node
-// positions folded in too, so a free<->free edge -- P-Split <-> Ironball,
-// and Twin Reverb, which connects to nothing else -- gets a real anchor
-// on both ends instead of an arbitrary fallback.
-function placeFreeItems(freeNodes, links, boardPos, boardW, boardH, refRowH) {
-  const round1 = layoutBySide(assignEdges(freeNodes, links, boardPos, boardW, boardH, refRowH), boardW, boardH);
+// area's align-items:center throws away
+// exactly the "how far along this edge" information the search computes
+// -- see the plan/commit message for why that was the actual bug behind
+// free items landing far from what they connect to). Two rounds: the
+// first can only anchor a node via its connections to *board* nodes
+// (nothing free has a position yet); the second re-resolves every node's
+// anchor with the first round's free-node positions folded in too, so a
+// free<->free edge between two nodes that connect to nothing else gets a
+// real anchor on both ends instead of an arbitrary fallback.
+function placeFreeItems(freeNodes, links, boardPos, boardW, boardH) {
+  const round1 = layoutBySide(assignEdges(freeNodes, links, boardPos, boardW, boardH), boardW, boardH);
 
   const resolved2 = new Map(boardPos);
   for (const [n, p] of round1.pos) resolved2.set(n, p);
-  return layoutBySide(assignEdges(freeNodes, links, resolved2, boardW, boardH, refRowH), boardW, boardH);
+  return layoutBySide(assignEdges(freeNodes, links, resolved2, boardW, boardH), boardW, boardH);
 }
 
 // Two-tier comparison used across row-plan candidates: primarily maximize
@@ -958,8 +778,8 @@ function isBetterLayout(a, b) {
 }
 
 // Ties the row-count search and free-item placement search together: for
-// each candidate row plan, lay out the rectangle (+ DVP5's sidebar, if
-// present), place every free node (see placeFreeItems), find the true
+// each candidate row plan, lay out the rectangle (+ the sidebar, if any
+// node has one), place every free node (see placeFreeItems), find the true
 // overall bounding box (rectangle and every free node, all of it -- not
 // an approximation from the rectangle's own size plus per-side extents,
 // since free items sharing an edge can collectively need more room than
@@ -974,28 +794,25 @@ function solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW,
   for (const flip of [false, true]) {
     const rowGeom = measureRows(rows, flip);
 
-    // DVP5 (if present) sits beside the row-stack, top-aligned, full
-    // board-lower height -- same structure as today's .board-sidebar.
+    // A sidebar node (if present) sits beside the row-stack, top-aligned,
+    // full board-lower height -- same structure as today's .board-sidebar.
     let boardW = rowGeom.width, boardH = rowGeom.height;
     const boardPos = new Map();
     for (const [n, p] of rowGeom.pos) boardPos.set(n, p);
     if (sidebarNodes.length) {
       let sx = rowGeom.width + BOARD_LOWER_GAP_PX;
       for (const n of sidebarNodes) {
-        const { w, h } = nodeSizePx(n, 0);
+        const { w, h } = nodeSizePx(n);
         boardPos.set(n, { x: sx, y: 0, w, h });
         boardH = Math.max(boardH, h);
       }
-      boardW = sx + Math.max(...sidebarNodes.map(n => nodeSizePx(n, 0).w));
+      boardW = sx + Math.max(...sidebarNodes.map(n => nodeSizePx(n).w));
     }
     for (const [, p] of boardPos) { p.x += BOARD_PADDING_X_PX; p.y += BOARD_PADDING_Y_PX; }
     boardW += 2 * BOARD_PADDING_X_PX;
     boardH += 2 * BOARD_PADDING_Y_PX;
 
-    const rowHeights = rows.map(row => Math.max(...row.map(n => nodeSizePx(n, 0).h), 0));
-    const refRowH = rowHeights.length ? Math.min(...rowHeights) : DEFAULT_WIDTH_PX;
-
-    const { pos: freePos } = placeFreeItems(freeNodes, links, boardPos, boardW, boardH, refRowH);
+    const { pos: freePos } = placeFreeItems(freeNodes, links, boardPos, boardW, boardH);
 
     let minX = 0, minY = 0, maxX = boardW, maxY = boardH;
     for (const [, p] of freePos) {
@@ -1019,8 +836,8 @@ function solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW,
 
 // Renders the whole page as one absolutely-positioned canvas
 // (.board-canvas, explicit width/height set by applyScale): the rectangle
-// (.board -- the packed rows solveLayout chose, plus DVP5's sidebar, if
-// present, full-height alongside them, both still plain flex layout
+// (.board -- the packed rows solveLayout chose, plus the sidebar, if any
+// node has one, full-height alongside them, both still plain flex layout
 // internally, unchanged) sits at solved.boardOffset, and every
 // `place="free"` node (guitar, amps, the PSU...) sits at its own real
 // (x, y) from solved.pos -- no grid, no compass buckets, nothing left for
@@ -1037,22 +854,22 @@ function renderPage(solved, sidebarNodes, freeNodes) {
   board.dataset.baseLeft = solved.boardOffset.x;
   board.dataset.baseTop = solved.boardOffset.y;
   // board-lower holds just the pedal-row-stack and any sidebar item, side
-  // by side -- top-aligned (not stretched/centered) so StroboStomp HD, at
-  // the near end of the bottom row right beside the sidebar, has clearance
+  // by side -- top-aligned (not stretched/centered) so a pedal at the near
+  // end of the bottom row, right beside the sidebar, has clearance
   // underneath for its `in` jack to route into.
   const boardLower = el('div', 'board-lower');
   const rowStack = el('div', 'board-rows');
   solved.rows.forEach((rowNodes, rowIdx) => {
     const reversed = (rowIdx % 2 === 0) !== solved.flip; // must match measureRows' identical rule exactly, or rendering would disagree with what was actually solved for
     const rowEl = el('div', 'chain board-row' + (reversed ? ' row-reverse' : ''));
-    rowNodes.forEach(n => rowEl.append(renderNodeBox(n, nodeSizePx(n, 0).w)));
+    rowNodes.forEach(n => rowEl.append(renderNodeBox(n, nodeSizePx(n).w)));
     rowStack.append(rowEl);
   });
   boardLower.append(rowStack);
 
   if (sidebarNodes.length) {
     const sidebar = el('div', 'board-sidebar');
-    sidebarNodes.forEach(n => sidebar.append(renderNodeBox(n, nodeSizePx(n, 0).w)));
+    sidebarNodes.forEach(n => sidebar.append(renderNodeBox(n, nodeSizePx(n).w)));
     boardLower.append(sidebar);
   }
   board.append(boardLower);
@@ -1334,7 +1151,7 @@ function connectorArrows(points, kind) {
   const [ex, ey] = points[points.length - 1], [ex2, ey2] = points[points.length - 2];
   const endForward = unit(ex - ex2, ey - ey2);
 
-  const isPower = kind === 'power' || kind === 'power-hc';
+  const isPower = kind === 'power';
 
   let ends;
   if (kind === 'exp') {
@@ -1416,7 +1233,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // feature entirely: a crossing where either side is power is just drawn
 // plain, same as before this existed.
 function isHoppableKind(kind) {
-  return kind !== 'power' && kind !== 'power-hc';
+  return kind !== 'power';
 }
 
 // 'h' or 'v' for an axis-aligned segment, null otherwise -- every segment
@@ -1720,9 +1537,9 @@ function preloadImages(nodeList) {
 // read -- see that function's comment for why a node's real total
 // footprint, not a guessed constant, is what geometry needs now that
 // nothing is left to CSS flow layout to reconcile against actual content.
-// A real DOM measurement, not a formula: the Telecaster's name alone is
-// long enough to wrap 2-3 lines depending on width, which no constant
-// could get right for every node. Built inside a `section.config` host so
+// A real DOM measurement, not a formula: a long device name can wrap 2-3
+// lines depending on width, which no constant could get right for every
+// node. Built inside a `section.config` host so
 // `--ui-scale`'s default of 1 (see style.css) resolves the exact same
 // calc()s real rendering uses. A `no-image` node has no image to size
 // against and isn't part of any width-bearing row/free-item math either,
@@ -1745,12 +1562,7 @@ function measureLabelHeights(nodeList) {
     // mean anything -- an unconstrained flex column sizes to its widest
     // *child*, and with no width to wrap against, the name would measure
     // as one long unwrapped line here regardless of how it actually
-    // renders. (For the 3 FLEXIBLE_SIZE_IDS nodes this is still only an
-    // approximation -- their real final width isn't known until a row
-    // height is, later -- using their natural real width tends to
-    // under-measure slightly, since the bracket almost always narrows
-    // them further, which only wraps a label *more*. Every other node's
-    // width is fixed, so this is exact for them.)
+    // renders. Every node's width is fixed, so this is exact.
     const w = Math.round(nodeRealWidthPx(node));
     probe.style.width = w + 'px';
     const spacer = document.createElement('div');
@@ -1818,10 +1630,15 @@ async function main() {
   const configName = new URLSearchParams(location.search).get('config') || 'config';
   // cache: 'no-cache' -- not "don't cache", but "always revalidate with the
   // server first" (a conditional If-None-Match/If-Modified-Since request)
-  // -- so an edit to config.dot shows up on next load without needing a
-  // manual cache-buster the way style.css/app.js do (see index.html): this
-  // is the one file editing this app is actually meant to involve.
-  const text = await fetch(`${configName}.dot`, { cache: 'no-cache' }).then(res => res.text());
+  // -- so an edit to config.dot/config.json shows up on next load without
+  // needing a manual cache-buster the way style.css/app.js do (see
+  // index.html): these are the files editing this app is actually meant
+  // to involve.
+  const [text, specs] = await Promise.all([
+    fetch(`${configName}.dot`, { cache: 'no-cache' }).then(res => res.text()),
+    fetch(`${configName}.json`, { cache: 'no-cache' }).then(res => res.json()),
+  ]);
+  PEDAL_SPECS = specs;
   // dotparser.min.js is a UMD build (global `dotParser`, not an ES
   // export), loaded via a classic <script> tag in index.html before this
   // one, so it's already on window here.

@@ -7,10 +7,7 @@ digraph pedalboard {
 
   // --- devices ---------------------------------------------------------
 
-  // compact60 [owner="AER", image="AER_Compact60_AcousticAmp_SH_04-scaled.jpg",
-  //       label="Compact 60 (2nd Gen) Amplifier"];
-
-  telecaster [owner="Fender", place="free",
+  telecaster [shape=record, owner="Fender", place="free",
       label="Limited Edition Made In Japan Super Deluxe Thinline Telecaster|<out> out"];
 
   strobostomp_hd [shape=record, owner="Peterson", url="https://www.petersontuners.com/products/stroboStompHD/",
@@ -35,16 +32,17 @@ digraph pedalboard {
   dvp5 [shape=record, owner="Dunlop", place="free", url="https://www.jimdunlop.com/volume-x-8-pedal/",
         label="DVP5 Volume (X) 8 Pedal|<exp> exp"];
   
-  // simplifier_x [shape=record, owner="DSM & Humboldt",
-  //       label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
+  simplifier_x [shape=record, owner="DSM & Humboldt", place="free", url="https://www.dsmhumboldt.com/simplifier-x", 
+        label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
 
-  ironball [owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
+  ironball [shape=record, owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
         label="<in> in|E606 Ironball SE X|<out> out|<loopOut> send|<loopIn> return"];
 
-  twin_reverb [owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
+  twin_reverb [shape=record, owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
         label="<in> in|1974 Twin Reverb"];
 
-  pedal_power [owner="Voodoo Lab", url="https://voodoolab.com/product/pedal-power-4x4/", label="Pedal Power 4x4"];
+  pedal_power [shape=record, owner="Voodoo Lab", place="free", url="https://voodoolab.com/product/pedal-power-4x4/",
+        label="Pedal Power 4x4|<hc12_1> hc12_1|<hc12_2> hc12_2|<hc9_1> hc9_1|<hc9_2> hc9_2|<hc9_3> hc9_3|<hc9_4> hc9_4|<iso1> iso1|<iso2> iso2|<iso3> iso3|<iso4> iso4"];
 
   // --- signal chain ------------------------------------------------------
 

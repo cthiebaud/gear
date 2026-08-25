@@ -7,9 +7,10 @@
   <!-- ?v=N is a manual cache-buster against GitHub Pages' CDN (~10min
        default max-age) -- bump it whenever style.css or app.js changes
        and you need visitors to pick it up immediately rather than wait
-       out the CDN's own cache. config.dot doesn't need this: it's fetched
-       at runtime with cache:'no-cache' instead (see app.js's main()), so
-       editing it never requires remembering to bump anything here. -->
+       out the CDN's own cache. config.dot/config.json don't need this:
+       they're fetched at runtime with cache:'no-cache' instead (see
+       app.js's main()), so editing either never requires remembering to
+       bump anything here. -->
   <link rel="stylesheet" href="style.css?v=2" />
 </head>
 <body>
