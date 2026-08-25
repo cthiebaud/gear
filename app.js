@@ -335,6 +335,16 @@ function renderNodeBox(node, baseWidthPx) {
       link.title = `${node.name} — product page`;
       box.append(link);
     } else {
+      // No product page to send a click to -- free to repurpose the
+      // click instead, tracing the signal path outward from here (see
+      // traceFrom). Every node happens to have a url except the guitar,
+      // so this is guitar-only today without hardcoding its id -- a
+      // future url-less node would just become another valid starting
+      // point, which is a reasonable reading of "nothing else to do with
+      // a click here" rather than a special case to guard against.
+      img.classList.add('node-traceable');
+      img.title = `${node.name} — trace signal path`;
+      img.addEventListener('click', () => traceFrom(node.id));
       box.append(img);
     }
   } else {
@@ -1474,7 +1484,7 @@ function wireConnectors(Avoid, root, sections) {
       const fromMinLen = fromFrac.stub ?? (MIN_STUB_PX + fromLane * LANE_STEP_PX);
       const toMinLen = toFrac.stub ?? (MIN_STUB_PX + toLane * LANE_STEP_PX);
       const label = `${link.from.name}.${link.fromPoint} -> ${link.to.name}.${link.toPoint}`;
-      drawList.push({ connRef, kind: link.kind, fromEdge, toEdge, fromMinLen, toMinLen, label });
+      drawList.push({ connRef, kind: link.kind, fromEdge, toEdge, fromMinLen, toMinLen, label, fromId: link.from.id, toId: link.to.id });
     }
   }
 
@@ -1498,16 +1508,27 @@ function wireConnectors(Avoid, root, sections) {
 
   const hopsByIndex = findConnectorHops(drawList);
 
+  // Every signal-kind connector's own {el, durationMs, toId, kind}, grouped by
+  // source node id -- what traceFrom() walks to animate the guitar's
+  // whole signal path one connector at a time on click. Rebuilt fresh
+  // every route() call (a resize reroutes everything, elements included)
+  // and handed back for main() to stash where traceFrom() can reach it.
+  const traceEdgesByFromId = new Map();
+
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'connector-overlay');
-  drawList.forEach(({ points, kind, label }, index) => {
+  drawList.forEach(({ points, kind, label, fromId, toId }, index) => {
     if (points.length < 2) return;
     const d = roundedPathD(points, CORNER_RADIUS_PX, hopsByIndex[index]);
+    // Shared by both the hover bulge and the click-triggered trace ellipse
+    // below -- same "constant apparent speed over this connector's own
+    // routed length" math either way (see BULGE_SPEED_PX_S).
+    const durationS = Math.max(BULGE_MIN_DURATION_S, polylineLength(points) / BULGE_SPEED_PX_S);
     // Everything belonging to one connector -- hit target, visible line,
-    // arrows, hover bulge -- lives in its own <g>, so the hover rules in
-    // style.css can just say ".connector-group:hover" and reach every
-    // one of this connector's own elements without caring how many
-    // arrows it has or what order they were appended in.
+    // arrows, hover bulge, trace ellipse -- lives in its own <g>, so the
+    // hover rules in style.css can just say ".connector-group:hover" and
+    // reach every one of this connector's own elements without caring
+    // how many arrows it has or what order they were appended in.
     const group = document.createElementNS(SVG_NS, 'g');
     group.setAttribute('class', 'connector-group');
     // A wide, invisible stroke laid right under the visible one -- the
@@ -1541,13 +1562,81 @@ function wireConnectors(Avoid, root, sections) {
       bulge.setAttribute('rx', BULGE_RX_PX);
       bulge.setAttribute('ry', BULGE_RY_PX);
       bulge.style.offsetPath = `path("${d}")`;
-      const duration = Math.max(BULGE_MIN_DURATION_S, polylineLength(points) / BULGE_SPEED_PX_S);
-      bulge.style.animationDuration = duration + 's';
+      bulge.style.animationDuration = durationS + 's';
       group.append(bulge);
+    }
+    // The click-cascade only ever follows the actual audio path (see
+    // SIGNAL_KINDS) -- power/exp connectors sit out, same reasoning as
+    // the hover bulge's own kind split just above, just a different axis
+    // (signal vs not, rather than dashed vs not: loop-out/loop-in are
+    // dashed *and* signal, so they get a march on hover but a trace
+    // ellipse of their own here too). Driven by the Web Animations API
+    // in traceFrom() rather than a CSS @keyframes/class toggle -- a
+    // one-shot, JS-sequenced animation is exactly what .animate()'s
+    // .finished promise is for, and it needs no cleanup dance to be
+    // safely re-triggerable on the next click.
+    if (SIGNAL_KINDS.has(kind)) {
+      const trace = document.createElementNS(SVG_NS, 'ellipse');
+      trace.setAttribute('class', 'connector-trace');
+      trace.setAttribute('rx', BULGE_RX_PX);
+      trace.setAttribute('ry', BULGE_RY_PX);
+      trace.style.offsetPath = `path("${d}")`;
+      group.append(trace);
+      if (!traceEdgesByFromId.has(fromId)) traceEdgesByFromId.set(fromId, []);
+      traceEdgesByFromId.get(fromId).push({ el: trace, durationMs: durationS * 1000, toId, kind });
     }
     svg.append(group);
   });
   root.append(svg);
+  return traceEdgesByFromId;
+}
+
+// Module-level so traceFrom() (called from a click handler set up back in
+// renderNodeBox, long before any routing exists) always reads whatever
+// wireConnectors most recently returned, rather than a stale map from
+// whenever the node's own box happened to render (see route() in main()).
+let TRACE_EDGES = new Map();
+
+// Plays one connector's own trace ellipse, then continues the cascade
+// from its target -- see traceFrom.
+async function fireTraceEdge({ el, durationMs, toId }, dispatched) {
+  el.style.opacity = 1;
+  await el.animate(
+    [{ offsetDistance: '0%' }, { offsetDistance: '100%' }],
+    { duration: durationMs, easing: 'linear' }
+  ).finished.catch(() => {}); // a mid-flight resize reroutes and detaches this element -- just stop, nothing to recover
+  el.style.opacity = 0;
+  await traceFrom(toId, dispatched);
+}
+
+// Follows the signal path outward from `startId`, firing each reached
+// connector's trace ellipse (see wireConnectors) once its own source has
+// been reached, and every diverging branch at a fork (e.g. P-Split) in
+// parallel. `dispatched` is what makes a cycle (Tim V3's send/return loop
+// through Brig) terminate instead of re-triggering forever: a node sends
+// its own outgoing edges at most once no matter how many different edges
+// later lead back to it.
+//
+// An effects-loop send (kind=loop-out) is dispatched, and fully awaited,
+// *before* this node's other outgoing edges -- an insert's main `out`
+// doesn't carry anything real until whatever's patched into its loop has
+// actually returned it, so firing both at once (as every other kind
+// does) would race the loop. Awaiting fireTraceEdge's own chain for the
+// loop-out edge already covers the whole round trip for free: it
+// recurses into whatever the loop feeds, which (by construction, a
+// loop-out always has a matching loop-in landing back on this same node)
+// dispatches that return edge as one of *its* own outgoing edges, and
+// this node is already in `dispatched` by then -- so no separate
+// "wait for the loop-in port" bookkeeping is needed, and nothing here
+// names Tim V3, Brig, or any other specific device.
+async function traceFrom(startId, dispatched = new Set()) {
+  if (dispatched.has(startId)) return;
+  dispatched.add(startId);
+  const edges = TRACE_EDGES.get(startId) || [];
+  const loopOutEdges = edges.filter(e => e.kind === 'loop-out');
+  const otherEdges = edges.filter(e => e.kind !== 'loop-out');
+  await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
+  await Promise.all(otherEdges.map(e => fireTraceEdge(e, dispatched)));
 }
 
 function nextFrame() {
@@ -1730,7 +1819,7 @@ async function main() {
   function route() {
     const old = root.querySelector('.connector-overlay');
     if (old) old.remove();
-    wireConnectors(avoid, root, sections);
+    TRACE_EDGES = wireConnectors(avoid, root, sections);
   }
 
   // Rebuilds the board from scratch at whatever scale currently fits --

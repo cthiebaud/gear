@@ -310,13 +310,18 @@ path.connector-hit {
   }
 }
 
-/* Hidden until hovered (see .connector-group:hover > .connector-bulge
-   above) -- offset-rotate: auto turns to match the path's own tangent as
-   it travels, so the ellipse (wider along x than y) reads as a bulge
-   riding the wire lengthwise rather than a dot drifting sideways across
-   it. fill:none from the shared reset above doesn't apply here (this is
-   an <ellipse>, not a <path>), so its own fill is set directly. */
-.connector-bulge {
+/* Hidden by default -- .connector-bulge until hovered (see
+   .connector-group:hover > .connector-bulge above), .connector-trace
+   until traceFrom() (app.js) toggles its opacity directly for its own
+   one-shot click-triggered travel, driven by the Web Animations API
+   rather than a CSS animation. offset-rotate: auto turns either to match
+   the path's own tangent as it travels, so the ellipse (wider along x
+   than y) reads as a bulge riding the wire lengthwise rather than a dot
+   drifting sideways across it. fill:none from the shared reset above
+   doesn't apply here (this is an <ellipse>, not a <path>), so its own
+   fill is set directly. */
+.connector-bulge,
+.connector-trace {
   fill: var(--accent);
   offset-rotate: auto;
   opacity: 0;
@@ -488,6 +493,13 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   object-fit: contain;
   margin-bottom: calc(0.5rem * var(--ui-scale));
   filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.18));
+}
+
+/* The one node with no product url to open instead (see renderNodeBox)
+   -- cursor is the only static affordance; nothing else marks it as
+   clickable, same restraint as a plain <img> anywhere else on the page. */
+.node-box img.node-traceable {
+  cursor: pointer;
 }
 
 /* 120x90 matches DEFAULT_WIDTH_PX and the no-image aspect fallback in
