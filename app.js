@@ -205,7 +205,7 @@ const PEDAL_SPECS = {
   // top-left placeholder so a connector has somewhere to land, same
   // convention as any other `approx`-flagged point.
   twin_reverb: {
-    file: 'fender-twin-reverb-1974-cutout-2.png',
+    file: 'fender-twin-reverb-1974-cutout.png',
     widthMm: 240, 
     approx: true,
     in: { x: 0.5, y: 0.03 },
