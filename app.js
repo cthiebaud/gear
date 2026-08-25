@@ -102,7 +102,7 @@ const PEDAL_SPECS = {
     file: 'peterson-strobostomp-hd.png',
     widthMm: 66,
     in: { x: 1, y: 0.55 },
-    out: { x: 0, y: 0.55 },
+    out: { x: 0, y: 0.55, stub: 10 },
     power: { x: 0.788, y: 0 },
   },
   ua1176: {
@@ -139,15 +139,15 @@ const PEDAL_SPECS = {
   electric_blue_chorus: {
     file: 'mad-professor-electric-blue.png',
     widthMm: 58,
-    in: { x: 1, y: 0.5 },
+    in: { x: 1, y: 0.5, stub: 24},
     out: { x: 0, y: 0.5 },
-    power: { x: 0.962, y: 0.7 },
+    power: { x: 0.962, y: 0.7, stub: 40},
   },
   capistan: {
     file: 'strymon-elcap-v2.png',
     widthMm: 101.6,
     in: { x: 0.85, y: 0 },
-    out: { x: 0.655, y: 0, stub: 0},
+    out: { x: 0.655, y: 0, stub: 30},
     exp: { x: 0.462, y: 0 },
     power: { x: 0.12, y: 0.025 },
   },
