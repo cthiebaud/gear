@@ -96,7 +96,6 @@
   "twin_reverb": {
     "file": "fender-twin-reverb-1974-cutout.png",
     "widthMm": 240,
-    "approx": true,
     "in": { "x": 0.5, "y": 0.03 }
   },
   "pedal_power": {

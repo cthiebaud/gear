@@ -227,17 +227,99 @@ section.config {
   padding: calc(2rem * var(--ui-scale)) calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
 }
 
-/* Each routed connector is one <path> directly under the .connector-overlay
-   svg, tagged with the kind-specific class wireConnectors() adds in app.js
-   -- this stylesheet is the *only* place any connector's appearance
-   (color, width, dash) is set. app.js only ever picks which of these
-   classes applies; it carries no color of its own, so there's one place
-   to look, not two. Scoped to direct children only so it doesn't reach the
-   power bolt's <path>, nested inside its own <svg> for icon scaling (see
-   connectorArrows) -- that one needs its .connector-arrow-power(-hc) fill
-   to actually apply. */
-.connector-overlay > path {
+/* Every routed connector is one <g class="connector-group"> (see
+   wireConnectors in app.js) holding a wide invisible hit path, the
+   visible line, its arrow(s), and (solid kinds only) a hover bulge --
+   grouping them is what lets the hover rules below reach all of a
+   connector's own pieces at once via ":hover >", regardless of how many
+   arrows it has, without caring about sibling order. This stylesheet is
+   the *only* place any connector's appearance (color, width, dash) is
+   set -- app.js only ever picks which of these classes applies, never a
+   color, so there's one place to look, not two. `> path` stays scoped to
+   direct children so it doesn't reach the power bolt's <path>, nested
+   inside its own <svg> for icon scaling (see connectorArrows) -- that one
+   needs its .connector-arrow-power fill to actually apply. */
+.connector-overlay > g > path {
   fill: none;
+}
+
+/* One of these sits right under every visible connector path (see
+   wireConnectors in app.js), sharing its `d` but invisible and much
+   wider -- the visible stroke alone (1.5-2px) is too thin to hover
+   reliably. `path.connector-hit` (element+class) outweighs the bare
+   .connector-KIND class selectors below on specificity alone, so this
+   stays transparent regardless of source order. pointer-events is
+   re-enabled just for this one path -- .connector-overlay's own `none`
+   is inherited by everything else here, keeping the gaps between
+   connectors click-through. */
+path.connector-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+}
+
+/* 40 is a common multiple of every dasharray cycle length in use below
+   (power's "2 3" = 5, loop's "6 2" = 8) -- one offset value loops
+   seamlessly for both patterns at once, no per-kind tuning needed. A
+   negative offset marches the dashes in the direction the path was
+   drawn (source -> target, see wireConnectors), so this happens to
+   track real flow direction on power/loop wires for free. */
+@keyframes connector-march {
+  to { stroke-dashoffset: -40; }
+}
+
+/* Travels the hover bulge (a solid-kind connector's own ellipse, see
+   wireConnectors) along the connector's own routed path -- offset-path
+   is set inline per element in app.js since the geometry is per-
+   connector, but the animation itself is identical for all of them. */
+@keyframes connector-travel {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+
+/* Specificity (0,2,1) beats every .connector-KIND rule below regardless
+   of source order, so one rule covers every kind uniformly. */
+.connector-group:hover > path:not(.connector-hit) {
+  stroke: var(--accent);
+  stroke-width: 3.5;
+}
+
+.connector-group:hover > .connector-bulge {
+  opacity: 1;
+}
+
+/* Motion (the dash march, the bulge's travel) is kept out of the base
+   hover rules above and behind this guard -- the color/width highlight
+   and the bulge's fade-in still show for prefers-reduced-motion users,
+   just without anything actually moving. */
+@media (prefers-reduced-motion: no-preference) {
+  .connector-group:hover > path:not(.connector-hit) {
+    animation-name: connector-march;
+    animation-duration: 1s;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+  /* animation-duration is deliberately left out here (unlike the march
+     rule above) -- it's set inline per element in app.js instead (see
+     BULGE_SPEED_PX_S), since unlike the march's fixed 1s, each
+     connector's own routed length needs its own travel time. */
+  .connector-group:hover > .connector-bulge {
+    animation-name: connector-travel;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+}
+
+/* Hidden until hovered (see .connector-group:hover > .connector-bulge
+   above) -- offset-rotate: auto turns to match the path's own tangent as
+   it travels, so the ellipse (wider along x than y) reads as a bulge
+   riding the wire lengthwise rather than a dot drifting sideways across
+   it. fill:none from the shared reset above doesn't apply here (this is
+   an <ellipse>, not a <path>), so its own fill is set directly. */
+.connector-bulge {
+  fill: var(--accent);
+  offset-rotate: auto;
+  opacity: 0;
 }
 
 .connector-through {
@@ -406,10 +488,6 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   object-fit: contain;
   margin-bottom: calc(0.5rem * var(--ui-scale));
   filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.18));
-}
-
-.node-box img.approx {
-  opacity: 0.92;
 }
 
 /* 120x90 matches DEFAULT_WIDTH_PX and the no-image aspect fallback in

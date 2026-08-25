@@ -80,9 +80,7 @@ const PX_PER_MM = 2.2;
 // on the left, matching how this rig is actually wired -- so `in` is
 // always the larger x of the pair. Port names here must match the
 // `<port>` names declared in that device's DOT record/HTML label exactly
-// -- that's the only place the two are tied together. `approx: true`
-// means the photo doesn't actually show the jacks (e.g. a top-down shot)
-// and the jack point is a placeholder, not a reading. `stub: N` overrides,
+// -- that's the only place the two are tied together. `stub: N` overrides,
 // for that one jack, the minimum straight run wireConnectors otherwise
 // computes before its connector's first bend (MIN_STUB_PX, plus
 // LANE_STEP_PX per further connector sharing the node -- see
@@ -300,14 +298,13 @@ function el(tag, className, children) {
 // `baseWidthPx` is always a *scale=1* width (see the Board layout section
 // below) -- stashed on the element's dataset so applyScale() can rescale it
 // later without either side needing to recompute or re-look-up anything.
-function sizedImage(src, alt, baseWidthPx, approx) {
+function sizedImage(src, alt, baseWidthPx) {
   const img = document.createElement('img');
   img.src = src;
   img.alt = alt;
   img.dataset.baseWidth = baseWidthPx;
   img.style.width = Math.round(baseWidthPx) + 'px';
   img.style.height = 'auto';
-  if (approx) img.classList.add('approx');
   return img;
 }
 
@@ -328,7 +325,7 @@ function renderNodeBox(node, baseWidthPx) {
     // the box to the image's own width forces the label to wrap under it
     // instead, which is what measureLabelHeights already measured against.
     box.dataset.baseWidth = baseWidthPx;
-    const img = sizedImage(node.image, node.name, baseWidthPx, node.spec && node.spec.approx);
+    const img = sizedImage(node.image, node.name, baseWidthPx);
     node.el = img; // shapeInfoFor/localRect read the <img> itself, regardless of whether it's link-wrapped below
     if (node.url) {
       const link = el('a', null, [img]);
@@ -930,6 +927,14 @@ function jackFraction(node, which) {
 // place to look for "what does X look like" instead of two.
 const SIGNAL_KINDS = new Set(['through', 'loop-out', 'loop-in', 'fork']);
 
+// Which kinds render dashed (mirrors style.css's own .connector-KIND
+// stroke-dasharray assignments -- kept in sync by hand, there being no
+// single shared source for it). Used only to decide which connectors get
+// the traveling hover bulge (see wireConnectors): a dashed wire already
+// gets a hover cue via the marching-dash animation, so a solid one is
+// the one that benefits from its own moving highlight.
+const DASHED_KINDS = new Set(['power', 'loop-out', 'loop-in']);
+
 // One straight run of a routed path, from `start` to `end` (already
 // shortened for the rounded corners roundedPathD puts at either end),
 // with a small semicircular detour spliced in for each crossing recorded
@@ -1094,6 +1099,21 @@ const POWER_BOLT_SIZE_PX = 11;
 // user content, so there's nothing to gain from fetching it separately.
 const POWER_BOLT_D = 'M34.137 20.862c-.475-.761-1.307-1.232-2.204-1.232h-6.356l6.707-16.032c.335-.802.248-1.717-.234-2.44C31.567.435 30.757 0 29.888 0h-8.444c-1.15 0-2.163.761-2.49 1.863l-7.283 24.565c-.233.786-.082 1.627.409 2.284.49.657 1.261 1.035 2.081 1.035h6.807l-1.189 14.106c-.083.987.548 1.898 1.503 2.164.955.264 1.962-.187 2.399-1.076l10.582-21.56c.396-.803.347-1.758-.126-2.519';
 const POWER_BOLT_VIEWBOX = 46.093;
+
+// The hover bulge (see wireConnectors) rides CSS motion path
+// (offset-path/offset-distance) along the connector's own routed `d`,
+// elongated along its direction of travel (offset-rotate: auto, set in
+// style.css) so it reads as a bulge riding the wire rather than a plain
+// dot. BULGE_SPEED_PX_S is a constant *apparent* speed, not a fixed
+// duration -- connectors range from short stubs to long runs, and a
+// single duration would make short ones look frantic and long ones
+// sluggish; per-connector animation-duration is derived from each one's
+// own routed length instead (see polylineLength), clamped so a very
+// short stub still gets a readable minimum travel time.
+const BULGE_RX_PX = 6;
+const BULGE_RY_PX = 3;
+const BULGE_SPEED_PX_S = 140;
+const BULGE_MIN_DURATION_S = 0.5;
 
 function unit(dx, dy) {
   const len = Math.hypot(dx, dy) || 1;
@@ -1290,6 +1310,18 @@ function findConnectorHops(entries) {
   return hopsByIndex;
 }
 
+// Straight-segment sum along a routed polyline -- doesn't account for
+// roundedPathD's corner rounding (a small fixed radius shaves a little
+// off each bend), close enough for driving the hover bulge's travel
+// speed (see BULGE_SPEED_PX_S), which has no need to be exact.
+function polylineLength(points) {
+  let len = 0;
+  for (let i = 1; i < points.length; i++) {
+    len += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]);
+  }
+  return len;
+}
+
 // Registers every node touched by a link as a libavoid obstacle (a
 // ShapeRef matching its rendered rectangle, relative to `root`) plus one
 // ShapeConnectionPin per jack actually used, then asks the router to
@@ -1470,18 +1502,50 @@ function wireConnectors(Avoid, root, sections) {
   svg.setAttribute('class', 'connector-overlay');
   drawList.forEach(({ points, kind, label }, index) => {
     if (points.length < 2) return;
+    const d = roundedPathD(points, CORNER_RADIUS_PX, hopsByIndex[index]);
+    // Everything belonging to one connector -- hit target, visible line,
+    // arrows, hover bulge -- lives in its own <g>, so the hover rules in
+    // style.css can just say ".connector-group:hover" and reach every
+    // one of this connector's own elements without caring how many
+    // arrows it has or what order they were appended in.
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', 'connector-group');
+    // A wide, invisible stroke laid right under the visible one -- the
+    // visible stroke itself (1.5-2px) is too thin a target to hover
+    // reliably. Shares the kind class too, so the power-connectors
+    // toggle hides it the same way it hides the real path (see
+    // style.css) -- otherwise a "hidden" power connector would still
+    // light up on hover.
+    const hit = document.createElementNS(SVG_NS, 'path');
+    hit.setAttribute('d', d);
+    hit.setAttribute('class', 'connector-hit connector-' + kind);
+    group.append(hit);
     const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', roundedPathD(points, CORNER_RADIUS_PX, hopsByIndex[index]));
+    path.setAttribute('d', d);
     path.setAttribute('class', 'connector-' + kind);
     path.setAttribute('data-link', label);
-    svg.append(path);
+    group.append(path);
     // Unlike audio (through/loop/fork, one-way source->target) or power
     // (PSU->pedal, also one-way), an expression jack is a two-way control
     // loop: the receiving pedal supplies a reference voltage out to the
     // pot, the wiper position comes back in on the same cable. So exp
     // gets a non-directional diamond marker at both ends instead of an
     // arrowhead -- connectorArrows() picks the shape by kind.
-    for (const arrow of connectorArrows(points, kind)) svg.append(arrow);
+    for (const arrow of connectorArrows(points, kind)) group.append(arrow);
+    // Dashed kinds already get a hover cue from the marching-dash
+    // animation (see style.css) -- only solid ones get their own
+    // traveling highlight instead, so a wire never gets both at once.
+    if (!DASHED_KINDS.has(kind)) {
+      const bulge = document.createElementNS(SVG_NS, 'ellipse');
+      bulge.setAttribute('class', 'connector-bulge');
+      bulge.setAttribute('rx', BULGE_RX_PX);
+      bulge.setAttribute('ry', BULGE_RY_PX);
+      bulge.style.offsetPath = `path("${d}")`;
+      const duration = Math.max(BULGE_MIN_DURATION_S, polylineLength(points) / BULGE_SPEED_PX_S);
+      bulge.style.animationDuration = duration + 's';
+      group.append(bulge);
+    }
+    svg.append(group);
   });
   root.append(svg);
 }

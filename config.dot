@@ -90,12 +90,12 @@ digraph pedalboard {
   // 250-300mA minimum) exactly fill hc9_1-4; the 4 low-draw pedals
   // exactly fill iso1-4. Both 12V outputs are unused for now.
 
-  pedal_power:hc9_1 -> brig:power [kind=power];
+  pedal_power:hc9_1 -> bluesky:power [kind=power];
   pedal_power:hc9_2 -> capistan:power [kind=power];
-  pedal_power:hc9_3 -> bluesky:power [kind=power];
+  pedal_power:hc9_3 -> brig:power [kind=power];
   pedal_power:hc9_4 -> ua1176:power [kind=power];
-  pedal_power:iso1 -> strobostomp_hd:power [kind=power];
-  pedal_power:iso2 -> centavo:power [kind=power];
-  pedal_power:iso3 -> tim_v3:power [kind=power];
-  pedal_power:iso4 -> electric_blue_chorus:power [kind=power];
+  pedal_power:iso1 -> electric_blue_chorus:power [kind=power];
+  pedal_power:iso2 -> tim_v3:power [kind=power];
+  pedal_power:iso3 -> centavo:power [kind=power];
+  pedal_power:iso4 -> strobostomp_hd:power [kind=power];
 }
