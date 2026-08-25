@@ -83,7 +83,15 @@ const PX_PER_MM = 2.2;
 // `<port>` names declared in that pedal's DOT record/HTML label exactly
 // -- that's the only place the two are tied together. `approx: true`
 // means the photo doesn't actually show the jacks (e.g. a top-down shot)
-// and the jack point is a placeholder, not a reading.
+// and the jack point is a placeholder, not a reading. `stub: N` overrides,
+// for that one jack, the minimum straight run wireConnectors otherwise
+// computes before its connector's first bend (MIN_STUB_PX, plus
+// LANE_STEP_PX per further connector sharing the node -- see
+// wireConnectors) -- e.g. `stub: 0` for a jack where that computed
+// minimum reads as an awkward kink against a neighboring pedal. Nothing
+// else about routing changes: the connector's own lane index is still
+// consumed as usual (so later connectors on the same node still get
+// spaced past it), only the length it's compared against is replaced.
 const PEDAL_SPECS = {
   telecaster :{
     file: 'telecaster.png',
@@ -108,14 +116,14 @@ const PEDAL_SPECS = {
     file: 'warm-audio-centavo.png',
     widthMm: 170,
     in: { x: 0.655, y: 0 },
-    out: { x: 0.343, y: 0 },
+    out: { x: 0.343, y: 0, stub: 24 },
     power: { x: 0.221, y: 0.015 },
   },
   tim_v3: {
     file: 'paul-c-tim-v3.png',
     widthMm: 117,
     in: { x: 0.833, y: 0 },
-    out: { x: 0.167, y: 0 },
+    out: { x: 0.167, y: 0, stub: 24  },
     // Brig is inserted in Tim's Boost/FX loop, off the dedicated loop jacks.
     loopOut: { x: 0.667, y: 0 },
     loopIn: { x: 0.333, y: 0 },
@@ -139,8 +147,8 @@ const PEDAL_SPECS = {
     file: 'strymon-elcap-v2.png',
     widthMm: 101.6,
     in: { x: 0.85, y: 0 },
+    out: { x: 0.655, y: 0, stub: 0},
     exp: { x: 0.462, y: 0 },
-    out: { x: 0.655, y: 0 },
     power: { x: 0.12, y: 0.025 },
   },
   bluesky: {
@@ -156,7 +164,7 @@ const PEDAL_SPECS = {
     // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive (no
     // power jack, so no `power` entry -- a device just doesn't get wired
     // to the PSU if it has no port for it).
-    in: { x: 0.857, y: 0 },
+    in: { x: 0.857, y: 0, stub: 108 },
     outDir: { x: 0.624, y: 0 },
     outIso: { x: 0.136, y: 0 },
   },
@@ -1105,25 +1113,83 @@ function jackFraction(node, which) {
 // place to look for "what does X look like" instead of two.
 const SIGNAL_KINDS = new Set(['through', 'loop-out', 'loop-in', 'fork']);
 
+// One straight run of a routed path, from `start` to `end` (already
+// shortened for the rounded corners roundedPathD puts at either end),
+// with a small semicircular detour spliced in for each crossing recorded
+// on this run by findConnectorHops -- so two wires that cross read as
+// "one passes over the other" instead of an ambiguous X/T junction.
+// Always bulges "up" for a horizontal run, "left" for a vertical one: an
+// arbitrary but fixed choice (which side reads better varies case by
+// case and isn't worth a heuristic), derived via the standard
+// cross(direction, desiredBulge)<0 test for which SVG sweep-flag curves
+// toward a given side of the chord.
+function segmentD(start, end, hops) {
+  if (!hops || hops.length === 0) return `L ${end[0]} ${end[1]} `;
+  const [sx, sy] = start, [ex, ey] = end;
+  const total = Math.hypot(ex - sx, ey - sy);
+  const [dx, dy] = unit(ex - sx, ey - sy);
+  const perp = dy === 0 ? [0, -1] : [-1, 0];
+  const sweep = (dx * perp[1] - dy * perp[0]) < 0 ? 1 : 0;
+
+  // Ordered by distance from `start` so each hop's radius can be clamped
+  // against its actual neighbors on this run (previous hop's exit, next
+  // hop's own reserved space) rather than a fixed budget blind to where
+  // on the run it falls.
+  const sorted = hops
+    .map(h => ({ t: (h.x - sx) * dx + (h.y - sy) * dy }))
+    .sort((a, b) => a.t - b.t);
+
+  let d = '';
+  let cursor = 0; // distance from start already emitted
+  for (let i = 0; i < sorted.length; i++) {
+    const t = sorted[i].t;
+    const nextT = i + 1 < sorted.length ? sorted[i + 1].t : total;
+    const r = Math.min(HOP_RADIUS_PX, t - cursor, nextT - t);
+    if (r < MIN_HOP_RADIUS_PX) continue; // no room -- leave this one plain
+    const inX = sx + dx * (t - r), inY = sy + dy * (t - r);
+    const outX = sx + dx * (t + r), outY = sy + dy * (t + r);
+    d += `L ${inX} ${inY} A ${r} ${r} 0 0 ${sweep} ${outX} ${outY} `;
+    cursor = t + r;
+  }
+  return d + `L ${ex} ${ey} `;
+}
+
 // Turns a routed polyline into a path string with rounded elbows, for the
 // same soft-corner look the old jsPlumb Flowchart connector had: each
 // interior vertex is shortened on both sides by `radius` and bridged with
-// a quadratic curve through the original corner point.
-function roundedPathD(points, radius) {
-  let d = `M ${points[0][0]} ${points[0][1]} `;
-  for (let i = 1; i < points.length - 1; i++) {
+// a quadratic curve through the original corner point. `hops` (from
+// findConnectorHops, keyed by segment index -- the same `points` index
+// space, before any rounding) get spliced into their run by segmentD.
+function roundedPathD(points, radius, hops = []) {
+  const n = points.length;
+  const roundIn = new Array(n), roundOut = new Array(n);
+  for (let i = 1; i < n - 1; i++) {
     const [px, py] = points[i - 1];
     const [x, y] = points[i];
     const [nx, ny] = points[i + 1];
     const inLen = Math.hypot(x - px, y - py);
     const outLen = Math.hypot(nx - x, ny - y);
     const r = Math.min(radius, inLen / 2, outLen / 2);
-    const inX = x - (x - px) / inLen * r, inY = y - (y - py) / inLen * r;
-    const outX = x + (nx - x) / outLen * r, outY = y + (ny - y) / outLen * r;
-    d += `L ${inX} ${inY} Q ${x} ${y} ${outX} ${outY} `;
+    roundIn[i] = [x - (x - px) / inLen * r, y - (y - py) / inLen * r];
+    roundOut[i] = [x + (nx - x) / outLen * r, y + (ny - y) / outLen * r];
   }
-  const [lx, ly] = points[points.length - 1];
-  return d + `L ${lx} ${ly}`;
+
+  const hopsBySeg = new Map();
+  for (const hop of hops) {
+    if (!hopsBySeg.has(hop.seg)) hopsBySeg.set(hop.seg, []);
+    hopsBySeg.get(hop.seg).push(hop);
+  }
+
+  let d = `M ${points[0][0]} ${points[0][1]} `;
+  for (let i = 0; i < n - 1; i++) {
+    const start = i === 0 ? points[0] : roundOut[i];
+    const end = i === n - 2 ? points[n - 1] : roundIn[i + 1];
+    d += segmentD(start, end, hopsBySeg.get(i));
+    if (i < n - 2) {
+      d += `Q ${points[i + 1][0]} ${points[i + 1][1]} ${roundOut[i + 1][0]} ${roundOut[i + 1][1]} `;
+    }
+  }
+  return d;
 }
 
 // libavoid's shapeBufferDistance only guarantees clearance *from the
@@ -1137,11 +1203,11 @@ function roundedPathD(points, radius) {
 // by shifting that bend point -- and the one before it, together, so
 // the segment between them keeps its own shape -- further from the pin,
 // borrowing the extra length from the segment one bend further back.
-const MIN_STUB_PX = 14;
+const MIN_STUB_PX = 18;
 // How much extra stub length each successive connector touching the same
 // node gets, on top of MIN_STUB_PX -- see the lane-assignment comment on
 // wireConnectors for why this is keyed per-node rather than per-kind.
-const LANE_STEP_PX = 10;
+const LANE_STEP_PX = 20;
 
 function ensureMinStub(points, edge, atStart, minLen) {
   if (!edge || points.length < 4) return;
@@ -1339,7 +1405,73 @@ const SHAPE_BUFFER_PX = 18;
 // tight-corridor caveat applies: can't create room that isn't there.
 const OBSTACLE_MARGIN_PX = 5;
 const CORNER_RADIUS_PX = 4;
+const HOP_RADIUS_PX = 6;
+const MIN_HOP_RADIUS_PX = 2; // below this a hop would be too small to read as anything but noise -- skip it, leave the crossing plain
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// True where a link's own segment can participate in a hop -- either as
+// the one that gets the bump, or as the one crossed under. Power wires
+// are dashed, already visually deprioritized, and fully hideable via the
+// header toggle (see index.html/style.css), so they're left out of the
+// feature entirely: a crossing where either side is power is just drawn
+// plain, same as before this existed.
+function isHoppableKind(kind) {
+  return kind !== 'power' && kind !== 'power-hc';
+}
+
+// 'h' or 'v' for an axis-aligned segment, null otherwise -- every segment
+// libavoid produces is one or the other (ORTHOGONAL_CONN, see
+// wireConnectors), so null only guards against a genuinely degenerate
+// (zero-length) segment.
+function segOrientation(p0, p1) {
+  if (p0[1] === p1[1]) return 'h';
+  if (p0[0] === p1[0]) return 'v';
+  return null;
+}
+
+// Where a horizontal and a vertical segment cross, or null if they don't
+// -- strictly in both segments' interiors, so two connectors merely
+// sharing an endpoint (the common case near a node with several jacks
+// close together) never registers as a crossing.
+function hvCrossing(hSeg, vSeg) {
+  const [hx0, hx1] = [hSeg[0][0], hSeg[1][0]].sort((a, b) => a - b);
+  const hy = hSeg[0][1];
+  const [vy0, vy1] = [vSeg[0][1], vSeg[1][1]].sort((a, b) => a - b);
+  const vx = vSeg[0][0];
+  if (vx > hx0 && vx < hx1 && hy > vy0 && hy < vy1) return [vx, hy];
+  return null;
+}
+
+// Finds every crossing between two *different* connectors' routed paths
+// (each already-drawn connector's own elbows never "cross" themselves)
+// and decides, for each, which one gets the hop: whichever is later in
+// `entries` -- paint order, since that's also SVG append order, so the
+// later wire is already the one rendered on top. Returns one hops array
+// per entry, indexed the same way, ready for roundedPathD.
+function findConnectorHops(entries) {
+  const hopsByIndex = entries.map(() => []);
+  for (let i = 0; i < entries.length; i++) {
+    if (!isHoppableKind(entries[i].kind)) continue;
+    for (let k = i + 1; k < entries.length; k++) {
+      if (!isHoppableKind(entries[k].kind)) continue;
+      const ptsI = entries[i].points, ptsK = entries[k].points;
+      for (let si = 0; si < ptsI.length - 1; si++) {
+        const oriI = segOrientation(ptsI[si], ptsI[si + 1]);
+        if (!oriI) continue;
+        for (let sk = 0; sk < ptsK.length - 1; sk++) {
+          const oriK = segOrientation(ptsK[sk], ptsK[sk + 1]);
+          if (!oriK || oriK === oriI) continue;
+          const segI = [ptsI[si], ptsI[si + 1]];
+          const segK = [ptsK[sk], ptsK[sk + 1]];
+          const cross = oriI === 'h' ? hvCrossing(segI, segK) : hvCrossing(segK, segI);
+          if (!cross) continue;
+          hopsByIndex[k].push({ seg: sk, x: cross[0], y: cross[1] });
+        }
+      }
+    }
+  }
+  return hopsByIndex;
+}
 
 // Registers every node touched by a link as a libavoid obstacle (a
 // ShapeRef matching its rendered rectangle, relative to `root`) plus one
@@ -1370,6 +1502,21 @@ function wireConnectors(Avoid, root, sections) {
 
   const router = new Avoid.Router(ORTHOGONAL_ROUTER);
   router.setRoutingParameter(Avoid.RoutingParameter.shapeBufferDistance.value, SHAPE_BUFFER_PX);
+  // A soft cost added to a route's own search for each other connector it
+  // would cross, on top of the router's usual shortest-path cost -- so a
+  // detour that avoids a crossing wins over the direct route only when
+  // the detour isn't drastically longer, never forbidding a crossing
+  // outright when there's truly no better path. Node positions stay
+  // exactly where the board layout put them; only the wires move.
+  // (libavoid's C++ side also has a router-wide setHateCrossings/
+  // doesHateCrossings toggle -- confirmed absent from Router's actual JS
+  // bindings here, every method the embind wrapper exposes checked
+  // directly, so crossingPenalty is the only lever available from this
+  // side.) Whatever crossings remain after this still get
+  // findConnectorHops' visual hop treatment (see roundedPathD), which is
+  // a separate concern: this tries to prevent crossings, that one just
+  // makes the ones that do happen unambiguous.
+  router.setRoutingParameter(Avoid.RoutingParameter.crossingPenalty.value, 200);
   // libavoid's nudging options (nudgeOrthogonal*, performUnifyingNudging-
   // PreprocessingStep, nudgeSharedPathsWithCommonEndPoint) were used here
   // to keep parallel connectors from overlapping, but they also nudge a
@@ -1378,7 +1525,7 @@ function wireConnectors(Avoid, root, sections) {
   // straight line to a correctly-shaped, sub-pixel-accurate route once
   // nudging was off. A pin landing on the wrong jack is worse than two
   // wires running close together, so nudging is out; overlap prevention
-  // needs a different mechanism (see TODO below).
+  // uses crossingPenalty and findConnectorHops instead (see above).
 
   const shapes = new Map(); // node -> { shape, w, h } (w/h are the *unpadded* image size, in local px)
   const pins = new Map(); // node -> Map(pointName -> classId)
@@ -1465,10 +1612,18 @@ function wireConnectors(Avoid, root, sections) {
       if (!fromShape || !toShape || fromClass == null || toClass == null) continue;
       const connRef = new Avoid.ConnRef(router, new Avoid.ConnEnd(fromShape, fromClass), new Avoid.ConnEnd(toShape, toClass));
       connRef.setRoutingType(ORTHOGONAL_CONN);
-      const fromEdge = jackEdge(jackFraction(link.from, link.fromPoint));
-      const toEdge = jackEdge(jackFraction(link.to, link.toPoint));
-      const fromMinLen = MIN_STUB_PX + nextLane(link.from) * LANE_STEP_PX;
-      const toMinLen = MIN_STUB_PX + nextLane(link.to) * LANE_STEP_PX;
+      const fromFrac = jackFraction(link.from, link.fromPoint);
+      const toFrac = jackFraction(link.to, link.toPoint);
+      const fromEdge = jackEdge(fromFrac);
+      const toEdge = jackEdge(toFrac);
+      // nextLane() is still called for both ends even when its result
+      // goes unused below (stub override present) -- it's what keeps
+      // *other* connectors on the same node spaced past this one; only
+      // the length this particular connector is held to changes.
+      const fromLane = nextLane(link.from);
+      const toLane = nextLane(link.to);
+      const fromMinLen = fromFrac.stub ?? (MIN_STUB_PX + fromLane * LANE_STEP_PX);
+      const toMinLen = toFrac.stub ?? (MIN_STUB_PX + toLane * LANE_STEP_PX);
       const label = `${link.from.name}.${link.fromPoint} -> ${link.to.name}.${link.toPoint}`;
       drawList.push({ connRef, kind: link.kind, fromEdge, toEdge, fromMinLen, toMinLen, label });
     }
@@ -1476,19 +1631,30 @@ function wireConnectors(Avoid, root, sections) {
 
   router.processTransaction();
 
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'connector-overlay');
-  for (const { connRef, kind, fromEdge, toEdge, fromMinLen, toMinLen, label } of drawList) {
-    const poly = connRef.displayRoute();
+  // Pass 1: resolve every connector's actual routed polyline first, and
+  // only that -- no drawing yet. findConnectorHops (pass 2) needs every
+  // path available to compare, not just the ones routed so far, and which
+  // wire hops over which is decided by drawList order (paint order), so
+  // that order has to already be final before either pass runs.
+  for (const entry of drawList) {
+    const poly = entry.connRef.displayRoute();
     const points = [];
     for (let i = 0; i < poly.size(); i++) {
       const p = poly.at(i);
       points.push([p.x, p.y]);
     }
-    if (points.length < 2) continue;
-    ensureMinStubPair(points, fromEdge, toEdge, fromMinLen, toMinLen);
+    ensureMinStubPair(points, entry.fromEdge, entry.toEdge, entry.fromMinLen, entry.toMinLen);
+    entry.points = points;
+  }
+
+  const hopsByIndex = findConnectorHops(drawList);
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'connector-overlay');
+  drawList.forEach(({ points, kind, label }, index) => {
+    if (points.length < 2) return;
     const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', roundedPathD(points, CORNER_RADIUS_PX));
+    path.setAttribute('d', roundedPathD(points, CORNER_RADIUS_PX, hopsByIndex[index]));
     path.setAttribute('class', 'connector-' + kind);
     path.setAttribute('data-link', label);
     svg.append(path);
@@ -1499,7 +1665,7 @@ function wireConnectors(Avoid, root, sections) {
     // gets a non-directional diamond marker at both ends instead of an
     // arrowhead -- connectorArrows() picks the shape by kind.
     for (const arrow of connectorArrows(points, kind)) svg.append(arrow);
-  }
+  });
   root.append(svg);
 }
 

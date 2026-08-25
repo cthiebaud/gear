@@ -41,7 +41,7 @@ digraph pedalboard {
   ironball [owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
         label="<in> in|E606 Ironball SE X|<out> out|<loopOut> send|<loopIn> return"];
 
-  twin_reverb [shape=record, owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
+  twin_reverb [owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
         label="<in> in|1974 Twin Reverb"];
 
   pedal_power [owner="Voodoo Lab", url="https://voodoolab.com/product/pedal-power-4x4/", label="Pedal Power 4x4"];
@@ -67,10 +67,9 @@ digraph pedalboard {
   // simplifier_x:loopOut -> electric_blue_chorus:in [kind="loop-out"];
   // bluesky:out -> simplifier_x:loopIn [kind="loop-in"];
 
-
-      psplit:outIso -> ironball:in [kind=fork];
-      ironball:loopOut -> electric_blue_chorus:in [kind="loop-out"];
-      bluesky:out -> ironball:loopIn [kind="loop-in"];
+  psplit:outIso -> ironball:in [kind=fork];
+  ironball:loopOut -> electric_blue_chorus:in [kind="loop-out"];
+  bluesky:out -> ironball:loopIn [kind="loop-in"];
 
   // P-Split's DIR output feeds the twin reverb, permanently, in
   // parallel with the ISO output above.
