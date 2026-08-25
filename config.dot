@@ -23,6 +23,8 @@ digraph pedalboard {
         label="<in> in|Tim V3|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
   brig [shape=record, owner="Strymon", url="https://www.strymon.net/product/brig",
         label="<in> in|Brig|<out> out|<power> pwr"];
+  psplit [shape=record, owner="Lehle", url="https://www.lehle.com/lehle-p-split-iii",
+        label="<in> in|P-Split III|<outDir> dir|<outIso> iso"];
   electric_blue_chorus [shape=record, owner="Mad Professor", url="https://mpamp.com/product/23/electric-blue-chorus",
         label="<in> in|Electric Blue Chorus|<out> out|<power> pwr"];
   capistan [shape=record, owner="Strymon", url="https://www.strymon.net/product/elcapistan/",
@@ -41,9 +43,6 @@ digraph pedalboard {
 
   twin_reverb [shape=record, owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
         label="<in> in|1974 Twin Reverb"];
-
-  psplit [shape=record, owner="Lehle", place="free", url="https://www.lehle.com/lehle-p-split-iii",
-        label="<in> in|P-Split III|<outDir> dir|<outIso> iso"];
 
   pedal_power [owner="Voodoo Lab", url="https://voodoolab.com/product/pedal-power-4x4/", label="Pedal Power 4x4"];
 

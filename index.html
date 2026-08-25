@@ -15,6 +15,19 @@
 <body>
   <header>
     <h1>My Gear</h1>
+    <!-- Pure CSS: the checkbox's :checked state is read by style.css via
+         body:has(#power-connectors-toggle:not(:checked)) to hide the power
+         wires/bolt markers, and by the sibling combinator below to swap the
+         icon for its struck-through state. app.js's routing never sees this
+         -- it always lays out power connectors as present; this only ever
+         toggles their painted visibility. -->
+    <label class="power-toggle" title="Show/hide power-supply connectors">
+      <input type="checkbox" id="power-connectors-toggle" checked hidden />
+      <svg viewBox="0 0 46.093 46.093" width="22" height="22">
+        <path d="M34.137 20.862c-.475-.761-1.307-1.232-2.204-1.232h-6.356l6.707-16.032c.335-.802.248-1.717-.234-2.44C31.567.435 30.757 0 29.888 0h-8.444c-1.15 0-2.163.761-2.49 1.863l-7.283 24.565c-.233.786-.082 1.627.409 2.284.49.657 1.261 1.035 2.081 1.035h6.807l-1.189 14.106c-.083.987.548 1.898 1.503 2.164.955.264 1.962-.187 2.399-1.076l10.582-21.56c.396-.803.347-1.758-.126-2.519" />
+        <line class="power-toggle-slash" x1="3" y1="3" x2="43" y2="43" />
+      </svg>
+    </label>
   </header>
   <main id="app">
     <!-- Static markup, not JS-built like everything else in #app -- shows

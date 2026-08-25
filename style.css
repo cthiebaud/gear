@@ -69,6 +69,34 @@ header h1 {
   font-size: 1.6rem;
 }
 
+/* The checkbox (hidden, see index.html) only exists to hold :checked
+   state; the label's <svg> -- toggled between plain-bolt and
+   struck-through by the sibling rules below -- is the only thing shown. */
+.power-toggle {
+  display: inline-flex;
+  margin: 0 0 0.5rem;
+  cursor: pointer;
+}
+
+.power-toggle svg {
+  fill: var(--wire-power);
+}
+
+.power-toggle-slash {
+  display: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.power-toggle input:not(:checked) ~ svg {
+  fill: var(--muted);
+}
+
+.power-toggle input:not(:checked) ~ svg .power-toggle-slash {
+  display: block;
+}
+
 .subtitle {
   margin: 0 0 2rem;
   color: var(--muted);
@@ -279,6 +307,19 @@ section.config {
 
 .connector-arrow-power-hc {
   fill: var(--wire-power-hc);
+}
+
+/* Driven by the header's power-toggle checkbox (see index.html):
+   :has() lets that rule reach these regardless of where in the DOM they
+   sit relative to the checkbox, no JS wiring required. Purely a paint-time
+   toggle -- libavoid still routes power connectors every time (they still
+   occupy space, still avoid obstacles), so hiding them here can never
+   change how anything else on the board is laid out. */
+body:has(#power-connectors-toggle:not(:checked)) .connector-power,
+body:has(#power-connectors-toggle:not(:checked)) .connector-power-hc,
+body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power,
+body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power-hc {
+  display: none;
 }
 
 /* White fill (var(--card-bg), so it still works in dark mode) rather than

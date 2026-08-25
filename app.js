@@ -176,20 +176,20 @@ const PEDAL_SPECS = {
   // from the toe end looking back at the jack panel, so this is a
   // portrait-oriented crop, unlike every other pedal here.
   dvp5: {
-    file: 'dunlop-volume-x-8.png',
-    widthMm: 67,
+    file: 'dunlop-volume-x-8-cutout.png',
+    widthMm: 50,
     sidebar: true, // rendered next to the packed rows, not packed into one -- see renderPage
     // Click-calibrated via calibrate.html. Jack panel, left to right:
     // OUTPUT, TUNER, EXP, INPUT.
-    exp: { x: 0.59, y: 0 },
+    exp: { x: 0.421, y: 0.005 }
   },
   ironball: {
     file: 'Engl-E606.png',
     widthMm: 200,
     in: { x: 0.5, y: 0 },
     out: { x: 0.212, y: 0.9 },
-    loopIn: { x: 0.667, y: 0.915 },
-    loopOut: { x: 0.333, y: 0.925 },
+    loopOut: { x: 0.667, y: 0.915 },
+    loopIn: { x: 0.333, y: 0.925 },
   },
   // Only here so its image scales to true width like a pedal's, same
   // reasoning as the telecaster. `in` isn't a real calibrated jack (no
@@ -198,7 +198,7 @@ const PEDAL_SPECS = {
   // convention as any other `approx`-flagged point.
   twin_reverb: {
     file: 'fender-twin-reverb-1974-cutout-2.png',
-    widthMm: 200, 
+    widthMm: 240, 
     approx: true,
     in: { x: 0.5, y: 0.03 },
   },
