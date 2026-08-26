@@ -1137,18 +1137,67 @@ const POWER_BOLT_VIEWBOX = 46.093;
 
 // The hover bulge (see wireConnectors) rides CSS motion path
 // (offset-path/offset-distance) along the connector's own routed `d`,
-// elongated along its direction of travel (offset-rotate: auto, set in
-// style.css) so it reads as a bulge riding the wire rather than a plain
-// dot. BULGE_SPEED_PX_S is a constant *apparent* speed, not a fixed
+// facing its direction of travel (offset-rotate: auto, set in style.css)
+// so it reads as something riding the wire rather than drifting sideways
+// across it. BULGE_SPEED_PX_S is a constant *apparent* speed, not a fixed
 // duration -- connectors range from short stubs to long runs, and a
 // single duration would make short ones look frantic and long ones
 // sluggish; per-connector animation-duration is derived from each one's
 // own routed length instead (see polylineLength), clamped so a very
 // short stub still gets a readable minimum travel time.
-const BULGE_RX_PX = 6;
-const BULGE_RY_PX = 3;
 const BULGE_SPEED_PX_S = 140;
 const BULGE_MIN_DURATION_S = 0.5;
+
+// Pac-Man body radius -- roughly double the old plain ellipse's total
+// width, per "at a larger size of course".
+const PACMAN_R_PX = 12;
+const PACMAN_MOUTH_DEG = 42; // half-angle of the open mouth
+
+// Both `d`s below describe the shape in its own local space, centered on
+// (0,0) with the mouth (when open) facing local +x -- offset-path/
+// offset-distance/offset-rotate (set per element in wireConnectors, same
+// as the old ellipse) handle translating+rotating that origin along the
+// connector, so "+x" ends up facing the actual direction of travel for
+// free, same as the old bulge's own elongated axis did.
+function pacmanClosedD(r) {
+  // A full circle, drawn as two semicircle arcs -- a single arc command
+  // can't sweep a full 360 degrees (needs distinct start/end points).
+  return `M${-r},0 A${r},${r} 0 1,0 ${r},0 A${r},${r} 0 1,0 ${-r},0 Z`;
+}
+function pacmanOpenD(r, mouthDeg) {
+  const rad = mouthDeg * Math.PI / 180;
+  const x = r * Math.cos(rad), y = r * Math.sin(rad);
+  return `M0,0 L${x},${-y} A${r},${r} 0 1,0 ${x},${y} Z`;
+}
+
+// Chomps a bulge/trace element between the two `d`s above via a plain SVG
+// SMIL <animate> on the path's own `d` attribute, rather than a CSS
+// @keyframes -- CSS can't interpolate between differently-shaped `d`s,
+// but a hard discrete flip (calcMode="discrete") is exactly the classic
+// 2-frame Pac-Man sprite anyway, not something smooth interpolation would
+// even improve.
+function addChomp(path) {
+  const anim = document.createElementNS(SVG_NS, 'animate');
+  anim.setAttribute('attributeName', 'd');
+  anim.setAttribute('calcMode', 'discrete');
+  anim.setAttribute('values', `${pacmanOpenD(PACMAN_R_PX, PACMAN_MOUTH_DEG)};${pacmanClosedD(PACMAN_R_PX)}`);
+  anim.setAttribute('dur', '0.2s');
+  anim.setAttribute('repeatCount', 'indefinite');
+  path.append(anim);
+}
+
+// Builds one Pac-Man <path> for wireConnectors -- shared by the hover
+// bulge and the click-triggered trace, which differ only in how their
+// travel along the connector is driven (a looping CSS animation vs. a
+// one-shot .animate() call, both set on the returned element by the
+// caller).
+function makePacman(className) {
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('class', className);
+  path.setAttribute('d', pacmanClosedD(PACMAN_R_PX));
+  addChomp(path);
+  return path;
+}
 
 function unit(dx, dy) {
   const len = Math.hypot(dx, dy) || 1;
@@ -1582,10 +1631,7 @@ function wireConnectors(Avoid, root, sections) {
     // animation (see style.css) -- only solid ones get their own
     // traveling highlight instead, so a wire never gets both at once.
     if (!DASHED_KINDS.has(kind)) {
-      const bulge = document.createElementNS(SVG_NS, 'ellipse');
-      bulge.setAttribute('class', 'connector-bulge');
-      bulge.setAttribute('rx', BULGE_RX_PX);
-      bulge.setAttribute('ry', BULGE_RY_PX);
+      const bulge = makePacman('connector-bulge');
       bulge.style.offsetPath = `path("${d}")`;
       bulge.style.animationDuration = durationS + 's';
       group.append(bulge);
@@ -1601,10 +1647,7 @@ function wireConnectors(Avoid, root, sections) {
     // .finished promise is for, and it needs no cleanup dance to be
     // safely re-triggerable on the next click.
     if (SIGNAL_KINDS.has(kind)) {
-      const trace = document.createElementNS(SVG_NS, 'ellipse');
-      trace.setAttribute('class', 'connector-trace');
-      trace.setAttribute('rx', BULGE_RX_PX);
-      trace.setAttribute('ry', BULGE_RY_PX);
+      const trace = makePacman('connector-trace');
       trace.style.offsetPath = `path("${d}")`;
       group.append(trace);
       if (!traceEdgesByFromId.has(fromId)) traceEdgesByFromId.set(fromId, []);

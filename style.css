@@ -12,6 +12,7 @@
   --wire-arrow-out: #4f7a3d;
   --wire-arrow-in: #b23a2a;
   --board-bg: rgba(0, 0, 0, 0.067);
+  --pacman: #ffd400;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -29,6 +30,7 @@
     --wire-arrow-out: #7cb56a;
     --wire-arrow-in: #e0705f;
     --board-bg: rgba(255, 255, 255, 0.067);
+    --pacman: #ffd400;
   }
 }
 
@@ -278,8 +280,12 @@ path.connector-hit {
 }
 
 /* Specificity (0,2,1) beats every .connector-KIND rule below regardless
-   of source order, so one rule covers every kind uniformly. */
-.connector-group:hover > path:not(.connector-hit) {
+   of source order, so one rule covers every kind uniformly. The bulge
+   and trace are <path>s too now (see makePacman in app.js) but are their
+   own painted shape, not a wire outline -- excluded here the same way
+   .connector-hit already is, so hovering doesn't stroke an outline
+   around Pac-Man's body or (below) march his edge like a dashed wire. */
+.connector-group:hover > path:not(.connector-hit, .connector-bulge, .connector-trace) {
   stroke: var(--accent);
   stroke-width: 3.5;
 }
@@ -293,7 +299,7 @@ path.connector-hit {
    and the bulge's fade-in still show for prefers-reduced-motion users,
    just without anything actually moving. */
 @media (prefers-reduced-motion: no-preference) {
-  .connector-group:hover > path:not(.connector-hit) {
+  .connector-group:hover > path:not(.connector-hit, .connector-bulge, .connector-trace) {
     animation-name: connector-march;
     animation-duration: 1s;
     animation-timing-function: linear;
@@ -314,15 +320,16 @@ path.connector-hit {
    .connector-group:hover > .connector-bulge above), .connector-trace
    until traceFrom() (app.js) toggles its opacity directly for its own
    one-shot click-triggered travel, driven by the Web Animations API
-   rather than a CSS animation. offset-rotate: auto turns either to match
-   the path's own tangent as it travels, so the ellipse (wider along x
-   than y) reads as a bulge riding the wire lengthwise rather than a dot
-   drifting sideways across it. fill:none from the shared reset above
-   doesn't apply here (this is an <ellipse>, not a <path>), so its own
-   fill is set directly. */
-.connector-bulge,
-.connector-trace {
-  fill: var(--accent);
+   rather than a CSS animation. offset-rotate: auto turns either to face
+   the path's own tangent as it travels -- makePacman() (app.js) draws
+   the local shape with its mouth toward local +x, so this is what keeps
+   the mouth pointing the way it's actually moving around every bend.
+   Both are <path>s (see makePacman), so the shared `> path { fill: none
+   }` reset above *would* otherwise win here on specificity alone --
+   qualified with .connector-group so this rule outranks it. */
+.connector-group path.connector-bulge,
+.connector-group path.connector-trace {
+  fill: var(--pacman);
   offset-rotate: auto;
   opacity: 0;
 }

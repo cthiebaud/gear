@@ -76,6 +76,10 @@ const ITEMS = [
   // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive -- no power jack, no LED.
   { key: 'p-split', label: 'Lehle P-Split III', file: 'lehle-p-split-iii.png', points: ['in', 'outDir', 'outIso'] },
   { key: 'simplifier x', label: 'DSM & Humboldt Simplifier X', file: 'dsm-simplifier-x.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power', 'led'] },
+  // No power jack of its own here -- config.json's ironball entry has
+  // none either (it's mains-powered, not pedalboard-fed).
+  { key: 'ironball', label: 'Engl E606 Ironball SE X', file: 'Engl-E606.png', points: ['in', 'out', 'loopOut', 'loopIn', 'led'] },
+  { key: 'twin reverb', label: 'Fender 1974 Twin Reverb', file: 'fender-twin-reverb-1974-cutout.png', points: ['in', 'led'] },
   // 10 real outputs: 2x 12V/400mA, 4x 9V/400mA ("hc9"), 4x 9V/100mA ("iso").
   { key: 'power supply', label: 'Voodoo Lab Pedal Power 4x4', file: 'voodoolab-4x4.png', points: ['hc12_1', 'hc12_2', 'hc9_1', 'hc9_2', 'hc9_3', 'hc9_4', 'iso1', 'iso2', 'iso3', 'iso4'] },
 ];
