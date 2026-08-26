@@ -26,6 +26,7 @@
     .dot.loopIn { background: #9a4bd9; }
     .dot.power { background: #369; }
     .dot.exp { background: #0aa; }
+    .dot.led { background: #e0e; }
     .status { font-size: 0.9rem; margin-top: 0.5rem; }
     .status .next { font-weight: 600; }
     .legend { font-size: 0.8rem; color: #555; }
@@ -50,6 +51,7 @@
     <span><i style="background:#9a4bd9"></i>loopIn</span>
     <span><i style="background:#369"></i>power</span>
     <span><i style="background:#0aa"></i>exp</span>
+    <span><i style="background:#e0e"></i>led</span>
   </div>
 
   <div id="pedals"></div>
@@ -63,17 +65,17 @@
 // hand, this file doesn't read app.js's ids directly.
 const ITEMS = [
   { key: 'dvp5', label: 'Dunlop DVP5 Volume (X) 8', file: 'dunlop-volume-x-8-cutout.png', points: ['exp'] },
-  { key: 'strobostomp hd', label: 'Peterson StroboStomp HD', file: 'peterson-strobostomp-hd.png', points: ['in', 'out', 'power'] },
-  { key: '1176', label: 'UA 1176 Studio Compressor', file: 'ua-1176.png', points: ['in', 'out', 'power'] },
-  { key: 'centavo', label: 'Warm Audio Centavo Gold', file: 'warm-audio-centavo-2.png', points: ['in', 'out', 'power'] },
-  { key: 'tim v3', label: 'Paul Cochrane Tim V3', file: 'paul-c-tim-v3.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power'] },
-  { key: 'brig', label: 'Strymon Brig', file: 'strymon-brig.png', points: ['in', 'out', 'power'] },
-  { key: 'electric blue chorus', label: 'Mad Professor Electric Blue Chorus', file: 'mad-professor-electric-blue.png', points: ['in', 'out', 'power'] },
-  { key: 'capistan', label: 'Strymon El Capistan', file: 'strymon-elcap-v2.png', points: ['in', 'out', 'power', 'exp'] },
-  { key: 'bluesky', label: 'Strymon BlueSky', file: 'strymon-bluesky.png', points: ['in', 'out', 'power'] },
-  // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive -- no power jack.
+  { key: 'strobostomp hd', label: 'Peterson StroboStomp HD', file: 'peterson-strobostomp-hd.png', points: ['in', 'out', 'power', 'led'] },
+  { key: '1176', label: 'UA 1176 Studio Compressor', file: 'ua-1176.png', points: ['in', 'out', 'power', 'led'] },
+  { key: 'centavo', label: 'Warm Audio Centavo Gold', file: 'warm-audio-centavo.png', points: ['in', 'out', 'power', 'led'] },
+  { key: 'tim v3', label: 'Paul Cochrane Tim V3', file: 'paul-c-tim-v3.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power', 'led'] },
+  { key: 'brig', label: 'Strymon Brig', file: 'strymon-brig.png', points: ['in', 'out', 'power', 'led'] },
+  { key: 'electric blue chorus', label: 'Mad Professor Electric Blue Chorus', file: 'mad-professor-electric-blue.png', points: ['in', 'out', 'power', 'led'] },
+  { key: 'capistan', label: 'Strymon El Capistan', file: 'strymon-elcap-v2.png', points: ['in', 'out', 'power', 'exp', 'led'] },
+  { key: 'bluesky', label: 'Strymon BlueSky', file: 'strymon-bluesky.png', points: ['in', 'out', 'power', 'led'] },
+  // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive -- no power jack, no LED.
   { key: 'p-split', label: 'Lehle P-Split III', file: 'lehle-p-split-iii.png', points: ['in', 'outDir', 'outIso'] },
-  { key: 'simplifier x', label: 'DSM & Humboldt Simplifier X', file: 'dsm-simplifier-x.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power'] },
+  { key: 'simplifier x', label: 'DSM & Humboldt Simplifier X', file: 'dsm-simplifier-x.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power', 'led'] },
   // 10 real outputs: 2x 12V/400mA, 4x 9V/400mA ("hc9"), 4x 9V/100mA ("iso").
   { key: 'power supply', label: 'Voodoo Lab Pedal Power 4x4', file: 'voodoolab-4x4.png', points: ['hc12_1', 'hc12_2', 'hc9_1', 'hc9_2', 'hc9_3', 'hc9_4', 'iso1', 'iso2', 'iso3', 'iso4'] },
 ];

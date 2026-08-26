@@ -1,0 +1,1 @@
+rembg i "photos/darktable_exported/DSCF1444_01.jpg" "photos/darktable_exported/DSCF1444_01_nobg.png" 2>&1

@@ -327,13 +327,21 @@ function renderNodeBox(node, baseWidthPx) {
     box.dataset.baseWidth = baseWidthPx;
     const img = sizedImage(node.image, node.name, baseWidthPx);
     node.el = img; // shapeInfoFor/localRect read the <img> itself, regardless of whether it's link-wrapped below
+
+    // Shrink-wraps to the image's own rendered box (see calibrate.html's
+    // identical .imgwrap) so the LED dot below can be positioned as a
+    // plain x/y % -- the same fraction-of-image-box convention the jack
+    // points already use (see jackFraction/portPoint) -- without the
+    // node-name label underneath throwing off the percentages.
+    const imgWrap = el('div', 'img-wrap');
+
     if (node.url) {
       const link = el('a', null, [img]);
       link.href = node.url;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.title = `${node.name} — product page`;
-      box.append(link);
+      imgWrap.append(link);
     } else {
       // No product page to send a click to -- free to repurpose the
       // click instead, tracing the signal path outward from here (see
@@ -345,8 +353,25 @@ function renderNodeBox(node, baseWidthPx) {
       img.classList.add('node-traceable');
       img.title = `${node.name} — trace signal path`;
       img.addEventListener('click', () => traceFrom(node.id));
-      box.append(img);
+      imgWrap.append(img);
     }
+
+    const ledFrac = jackFraction(node, 'led');
+    if (ledFrac) {
+      const led = el('div', 'led-dot');
+      led.style.left = (ledFrac.x * 100) + '%';
+      led.style.top = (ledFrac.y * 100) + '%';
+      led.title = `${node.name} — toggle LED`;
+      led.addEventListener('click', e => {
+        e.preventDefault(); // don't follow the product-page link underneath
+        e.stopPropagation(); // don't also trigger node-traceable's click
+        led.classList.toggle('on');
+      });
+      imgWrap.append(led);
+      node.ledEl = led; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
+    }
+
+    box.append(imgWrap);
   } else {
     box.classList.add('no-image');
   }
@@ -1597,6 +1622,48 @@ function wireConnectors(Avoid, root, sections) {
 // whenever the node's own box happened to render (see route() in main()).
 let TRACE_EDGES = new Map();
 
+// id -> node object, so fireTraceEdge (below) can find a just-arrived-at
+// node's LED without threading node references through the whole
+// TRACE_EDGES/traceFrom cascade. Set once in main() -- unlike TRACE_EDGES
+// this doesn't need rebuilding on resize: node objects (and node.ledEl,
+// kept current by renderNodeBox on every relayout) are the same ones the
+// whole run, only their DOM/geometry changes.
+let NODES_BY_ID = new Map();
+
+// Flicker rate itself lives in style.css's `led-blink` keyframes
+// (animation-duration: 160ms per full on/off cycle, `infinite` -- so it's
+// equally happy running for a fixed timeout below or for however long an
+// FX loop's round trip takes, see traceFrom) -- LED_BLINK_DURATION_MS
+// below only bounds the fixed-timeout case.
+const LED_BLINK_DURATION_MS = 800; // 5 full on/off cycles before settling off
+
+function ledElFor(nodeId) {
+  return NODES_BY_ID.get(nodeId)?.ledEl;
+}
+
+function startLedBlink(nodeId) {
+  ledElFor(nodeId)?.classList.add('blinking');
+}
+
+// Ends with the LED off again, same as it was on entry: this is a
+// transient "signal is here" cue, not a toggle of the click-driven .on
+// state from renderNodeBox.
+function stopLedBlink(nodeId) {
+  ledElFor(nodeId)?.classList.remove('blinking', 'on');
+}
+
+// Flickers a just-reached node's LED (if it has one) for a fixed window
+// before the cascade pushes the bulge on out -- see traceFrom. Nodes with
+// their own FX loop don't use this: their LED instead stays lit for the
+// whole loop round trip (traceFrom handles that directly), since the
+// signal hasn't actually left yet.
+async function blinkLed(nodeId) {
+  if (!ledElFor(nodeId)) return;
+  startLedBlink(nodeId);
+  await new Promise(res => setTimeout(res, LED_BLINK_DURATION_MS));
+  stopLedBlink(nodeId);
+}
+
 // Plays one connector's own trace ellipse, then continues the cascade
 // from its target -- see traceFrom.
 async function fireTraceEdge({ el, durationMs, toId }, dispatched) {
@@ -1628,14 +1695,28 @@ async function fireTraceEdge({ el, durationMs, toId }, dispatched) {
 // dispatches that return edge as one of *its* own outgoing edges, and
 // this node is already in `dispatched` by then -- so no separate
 // "wait for the loop-in port" bookkeeping is needed, and nothing here
-// names Tim V3, Brig, or any other specific device.
+// names Tim V3, Brig, Engl, or any other specific device.
+//
+// A node with its own loop (kind=loop-out present, whether it's an
+// insert pedal or an amp's built-in loop) keeps its LED lit for that
+// entire round trip instead of the normal fixed-duration flicker: the
+// signal hasn't actually left this node yet, only detoured out through
+// the loop and back. Whatever's patched into the loop (e.g. Brig) still
+// gets its own independent arrival flicker as the bulge passes through
+// *it* -- so more than one LED can be lit at once while a loop is live.
 async function traceFrom(startId, dispatched = new Set()) {
   if (dispatched.has(startId)) return;
   dispatched.add(startId);
   const edges = TRACE_EDGES.get(startId) || [];
   const loopOutEdges = edges.filter(e => e.kind === 'loop-out');
   const otherEdges = edges.filter(e => e.kind !== 'loop-out');
-  await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
+  if (loopOutEdges.length) {
+    startLedBlink(startId);
+    await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
+    stopLedBlink(startId);
+  } else {
+    await blinkLed(startId);
+  }
   await Promise.all(otherEdges.map(e => fireTraceEdge(e, dispatched)));
 }
 
@@ -1797,6 +1878,7 @@ async function main() {
   // one, so it's already on window here.
   const ast = window.dotParser.parse(text);
   const { nodeList, links, rowGroups } = buildModel(ast);
+  NODES_BY_ID = new Map(nodeList.map(n => [n.id, n]));
   await preloadImages(nodeList);
   measureLabelHeights(nodeList);
 

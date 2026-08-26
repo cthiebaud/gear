@@ -9,21 +9,24 @@
     "widthMm": 66,
     "in": { "x": 1, "y": 0.55 },
     "out": { "x": 0, "y": 0.55, "stub": 10 },
-    "power": { "x": 0.788, "y": 0 }
+    "power": { "x": 0.788, "y": 0 },
+    "led": { "x": 0.255, "y": 0.735 }
   },
   "ua1176": {
     "file": "ua-1176.png",
     "widthMm": 65,
     "in": { "x": 0.705, "y": 0 },
     "out": { "x": 0.285, "y": 0 },
-    "power": { "x": 0.5, "y": 0.05 }
+    "power": { "x": 0.5, "y": 0.05 },
+    "led": { "x": 0.5, "y": 0.133 }
   },
   "centavo": {
-    "file": "warm-audio-centavo-2.png",
+    "file": "warm-audio-centavo.png",
     "widthMm": 170,
     "in": { "x": 0.657, "y": 0 },
     "out": { "x": 0.352, "y": 0, "stub": 24 },
-    "power": { "x": 0.214, "y": 0.011 }
+    "power": { "x": 0.214, "y": 0.011 },
+    "led": { "x": 0.09, "y": 0.388 }
   },
   "tim_v3": {
     "file": "paul-c-tim-v3.png",
@@ -32,21 +35,24 @@
     "out": { "x": 0.167, "y": 0, "stub": 24 },
     "loopOut": { "x": 0.667, "y": 0 },
     "loopIn": { "x": 0.333, "y": 0 },
-    "power": { "x": 0.5, "y": 0.03 }
+    "power": { "x": 0.5, "y": 0.03 },
+    "led": { "x": 0.164, "y": 0.65 }
   },
   "brig": {
     "file": "strymon-brig.png",
     "widthMm": 68.6,
     "in": { "x": 0.817, "y": 0 },
     "out": { "x": 0.579, "y": 0 },
-    "power": { "x": 0.125, "y": 0.027 }
+    "power": { "x": 0.125, "y": 0.027 },
+    "led": { "x": 0.5, "y": 0.135 }
   },
   "electric_blue_chorus": {
     "file": "mad-professor-electric-blue.png",
     "widthMm": 58,
     "in": { "x": 1, "y": 0.5, "stub": 24 },
     "out": { "x": 0, "y": 0.5 },
-    "power": { "x": 0.962, "y": 0.7, "stub": 40 }
+    "power": { "x": 0.962, "y": 0.7, "stub": 40 },
+    "led": { "x": 0.498, "y": 0.066 }
   },
   "capistan": {
     "file": "strymon-elcap-v2.png",
@@ -54,14 +60,16 @@
     "in": { "x": 0.85, "y": 0 },
     "out": { "x": 0.655, "y": 0, "stub": 30 },
     "exp": { "x": 0.462, "y": 0 },
-    "power": { "x": 0.12, "y": 0.025 }
+    "power": { "x": 0.12, "y": 0.025 },
+    "led": { "x": 0.817, "y": 0.678 }
   },
   "bluesky": {
     "file": "strymon-bluesky.png",
     "widthMm": 101.6,
     "in": { "x": 0.85, "y": 0 },
     "out": { "x": 0.271, "y": 0 },
-    "power": { "x": 0.12, "y": 0.025 }
+    "power": { "x": 0.12, "y": 0.025 },
+    "led": { "x": 0.814, "y": 0.668 }
   },
   "psplit": {
     "file": "lehle-p-split-iii.png",
@@ -77,7 +85,8 @@
     "out": { "x": 0.212, "y": 1 },
     "loopOut": { "x": 0.619, "y": 1 },
     "loopIn": { "x": 0.348, "y": 1 },
-    "power": { "x": 0.117, "y": 0.039 }
+    "power": { "x": 0.117, "y": 0.039 },
+    "led": { "x": 0.09, "y": 0.774 }
   },
   "dvp5": {
     "file": "dunlop-volume-x-8-cutout.png",

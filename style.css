@@ -488,11 +488,68 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   display: block;
 }
 
+/* Shrink-wraps to the image's (or its product-page link's) own rendered
+   box -- same technique as calibrate.html's .imgwrap -- so .led-dot's x/y
+   % below lands on the exact fraction-of-image-box that config.json's
+   jack points already use (see app.js's jackFraction/portPoint), rather
+   than a box inflated by the node-name label underneath. The label gap
+   lives here instead of on the img itself for the same reason: a
+   bottom margin on the img would still inflate this wrap's own auto
+   height (inline-block establishes a new formatting context, which
+   stops the margin from collapsing *out* but doesn't stop it from
+   still occupying space *inside*). */
+.img-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  margin-bottom: calc(0.5rem * var(--ui-scale));
+}
+
 .node-box img {
   display: block;
   object-fit: contain;
-  margin-bottom: calc(0.5rem * var(--ui-scale));
   filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.18));
+}
+
+/* Synthetic LED glow, positioned at config.json's `led` fraction. Off by
+   default -- the real (unlit) LED already shows through from the photo
+   underneath. `screen` blend brightens whatever's really there instead of
+   painting a flat colored sticker over it, so this works regardless of
+   the photographed LED's actual color. */
+.led-dot {
+  position: absolute;
+  width: calc(7px * var(--ui-scale));
+  height: calc(7px * var(--ui-scale));
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  cursor: pointer;
+  background: radial-gradient(circle, #fff6d0 0%, #ffb347 55%, transparent 75%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.led-dot.on {
+  opacity: 1;
+  box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 170, 60, 0.85);
+}
+
+/* Transient "signal just landed here" cue -- see blinkLed() in app.js.
+   The hard on/off cut lives in the keyframe percentages themselves (each
+   phase held flat, not eased into) rather than a steps()+alternate timing
+   function -- steps(1) alternate's "on" value only technically exists for
+   a zero-duration instant right at the iteration boundary, so it never
+   actually gets painted (found by testing: the wait was visible, the
+   flicker wasn't). One keyframe cycle already contains both phases, so
+   no alternate is needed either. */
+@keyframes led-blink {
+  0%, 49.9% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.led-dot.blinking {
+  animation: led-blink 160ms step-end infinite;
+  box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 170, 60, 0.85);
 }
 
 /* The one node with no product url to open instead (see renderNodeBox)
