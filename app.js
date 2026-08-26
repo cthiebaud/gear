@@ -352,7 +352,8 @@ function renderNodeBox(node, baseWidthPx) {
       // a click here" rather than a special case to guard against.
       img.classList.add('node-traceable');
       img.title = `${node.name} — trace signal path`;
-      img.addEventListener('click', () => traceFrom(node.id));
+      TRACEABLE_NODE_ID = node.id; // lets the spacebar shortcut (see startCascade) start from here too
+      img.addEventListener('click', () => startCascade());
       imgWrap.append(img);
     }
 
@@ -1665,6 +1666,180 @@ function wireConnectors(Avoid, root, sections) {
 // whenever the node's own box happened to render (see route() in main()).
 let TRACE_EDGES = new Map();
 
+// --- Sound ---------------------------------------------------------------
+//
+// Three cues, three different concurrency rules, because they mean three
+// different things:
+//  - beginning: a one-shot gate. Nothing else starts until it finishes.
+//  - chomp: a *state* ("something is traveling right now"), so it's
+//    reference-counted -- a fork or a live loop can have more than one
+//    connector animating at once, and the loop should only actually stop
+//    once the last of them has landed, not restart a second overlapping
+//    copy per connector.
+//  - eatfruit: a one-shot *event* ("a signal just landed on an LED"). An
+//    FX loop can land on two LEDs close together (see traceFrom), and
+//    layering two copies of the same one-shot is exactly the "annoying"
+//    the user flagged -- so a trigger while one's already playing just
+//    rides along silently instead of stacking another copy.
+const SOUND_BEGINNING = new Audio('/sounds/pacman_beginning.wav');
+const SOUND_DEATH = new Audio('/sounds/pacman_death.wav');
+function playDeath() {
+  SOUND_DEATH.currentTime = 0;
+  SOUND_DEATH.play().catch(() => {});
+}
+const DEFAULT_EATFRUIT_URL = '/sounds/pacman_eatfruit.wav';
+
+// Gates the very start of a trace cascade (see the telecaster's click
+// handler in renderNodeBox) -- awaited before traceFrom() is even called,
+// so nothing moves or makes another sound until this finishes. Resolves
+// (doesn't reject) even if the browser refuses autoplay -- a refused
+// jingle shouldn't hang the whole cascade forever.
+function playBeginning() {
+  return new Promise(resolve => {
+    SOUND_BEGINNING.currentTime = 0;
+    SOUND_BEGINNING.addEventListener('ended', resolve, { once: true });
+    SOUND_BEGINNING.play().catch(resolve);
+  });
+}
+
+// Same declicking idea as DECLICK_S below, but for a plain <audio>
+// element instead of a Web Audio graph -- HTMLMediaElement has no gain
+// node to schedule a sample-accurate ramp on, so this is a coarser
+// rAF-driven fade of its own .volume, only needed when stopCascade()
+// interrupts one mid-playback (left to finish naturally, a one-shot
+// never needs this at all).
+function fadeOutAndReset(audio, ms = 30) {
+  if (audio.paused) return;
+  const start = performance.now();
+  const startVolume = audio.volume;
+  function step(now) {
+    const t = Math.min(1, (now - start) / ms);
+    audio.volume = startVolume * (1 - t);
+    if (t < 1 && !audio.paused) {
+      requestAnimationFrame(step);
+    } else {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = startVolume; // restore for next play()
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// The chomp loop is the one cue that actually has to be *gapless* --
+// HTMLMediaElement's own `loop` isn't sample-accurate (restarting a short
+// clip re-enters the decode pipeline each cycle), which is exactly the
+// audible seam this was built to fix even before the file had any actual
+// silence to blame. Web Audio's AudioBufferSourceNode decodes the whole
+// clip into memory once and loops the raw samples directly, so there's
+// nothing left to glitch at the seam.
+let audioCtx = null;
+let chompGain = null; // see DECLICK_S below -- routes the chomp source through a rampable gain instead of straight to destination
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    chompGain = audioCtx.createGain();
+    chompGain.connect(audioCtx.destination);
+  }
+  return audioCtx;
+}
+
+// A hard stop/start on a raw AudioBufferSourceNode cuts the waveform at
+// whatever sample it happens to be sitting on -- almost never zero -- and
+// that instantaneous jump is exactly what a "click" *is* (a speaker being
+// asked to move somewhere instantly instead of continuously). Every
+// chomp start/stop below ramps chompGain across this many seconds first
+// so there's nothing left to jump.
+const DECLICK_S = 0.012;
+const CHOMP_GAIN = 0.6; // chomp runs the whole cascade now (see startChompLoop) -- turned down so it sits behind eatfruit instead of dominating
+
+let chompBufferPromise = null;
+function getChompBuffer() {
+  if (!chompBufferPromise) {
+    chompBufferPromise = fetch('/sounds/pacman_chomp.mp3')
+      .then(res => res.arrayBuffer())
+      .then(bytes => getAudioCtx().decodeAudioData(bytes));
+  }
+  return chompBufferPromise;
+}
+
+let chompSource = null;
+let chompGeneration = 0; // bumped on every stop, so a start still loading when the cascade ends doesn't outlive it
+
+// One continuous loop for the *whole* cascade -- started once in
+// startCascade, stopped once when it ends (naturally or via spacebar) --
+// not restarted per connector the way it used to be. Besides being what
+// was actually asked for (eatfruit cues now superpose on an unbroken
+// chomp instead of interrupting it), it also means the declicked
+// start/stop in DECLICK_S below only ever fires twice per cascade instead
+// of once per connector, which was the bigger source of any residual
+// click risk even after declicking each individual transition.
+async function startChompLoop() {
+  const myGeneration = ++chompGeneration;
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') await ctx.resume();
+  const buffer = await getChompBuffer();
+  if (myGeneration !== chompGeneration) return; // cascade already ended while this loaded
+  chompSource = ctx.createBufferSource();
+  chompSource.buffer = buffer;
+  chompSource.loop = true;
+  chompSource.connect(chompGain);
+  const now = ctx.currentTime;
+  chompGain.gain.cancelScheduledValues(now);
+  chompGain.gain.setValueAtTime(0, now);
+  chompGain.gain.linearRampToValueAtTime(CHOMP_GAIN, now + DECLICK_S);
+  chompSource.start();
+}
+
+// Fades chompGain to 0 before actually stopping the source, then schedules
+// the stop itself for right after the ramp finishes -- by then it's
+// already silent, so the cut lands on zero instead of mid-waveform.
+// Shared by the cascade's own natural end (startCascade) and stopCascade
+// (spacebar abort, mid-cascade).
+function stopChompSource() {
+  if (!chompSource) return;
+  const ctx = getAudioCtx();
+  const now = ctx.currentTime;
+  chompGain.gain.cancelScheduledValues(now);
+  chompGain.gain.setValueAtTime(chompGain.gain.value, now);
+  chompGain.gain.linearRampToValueAtTime(0, now + DECLICK_S);
+  try { chompSource.stop(now + DECLICK_S); } catch { /* already stopped */ }
+  chompSource = null;
+}
+
+// Every pedal's own eatfruit clip (config.json's `eatfruit`, a filename
+// under /sounds/) gets one cached Audio, reused across calls the same
+// way a pedal's own image is one file regardless of how many times it's
+// drawn; pedals without an override all share one cached Audio for
+// DEFAULT_EATFRUIT_URL instead of each getting their own redundant copy
+// of the same clip. Keyed by URL rather than node id so that sharing
+// falls out for free either way -- no separate "has an override or not"
+// branch to keep in sync.
+const eatFruitAudioByUrl = new Map();
+function eatFruitAudioFor(nodeId) {
+  const spec = NODES_BY_ID.get(nodeId)?.spec;
+  const url = spec?.eatfruit ? `/sounds/${spec.eatfruit}` : DEFAULT_EATFRUIT_URL;
+  let audio = eatFruitAudioByUrl.get(url);
+  if (!audio) {
+    audio = new Audio(url);
+    eatFruitAudioByUrl.set(url, audio);
+  }
+  return audio;
+}
+
+// One-shot mutex *per clip*, not globally: two pedals landing close
+// together (an FX loop, see traceFrom) now likely have two genuinely
+// different flavors, which is the whole point -- only a literal repeat
+// of the exact same clip (two pedals sharing the default, or the same
+// pedal re-entering somehow) gets muted here, same reasoning as before,
+// just scoped down to "this clip" instead of "any eatfruit".
+function playEatFruit(nodeId) {
+  const audio = eatFruitAudioFor(nodeId);
+  if (!audio.paused) return;
+  audio.currentTime = 0;
+  audio.play().catch(() => {});
+}
+
 // id -> node object, so fireTraceEdge (below) can find a just-arrived-at
 // node's LED without threading node references through the whole
 // TRACE_EDGES/traceFrom cascade. Set once in main() -- unlike TRACE_EDGES
@@ -1684,8 +1859,16 @@ function ledElFor(nodeId) {
   return NODES_BY_ID.get(nodeId)?.ledEl;
 }
 
-function startLedBlink(nodeId) {
-  ledElFor(nodeId)?.classList.add('blinking');
+// `sound: false` is for a loop's own master pedal (see traceFrom): its LED
+// stays lit for the whole round trip, but the signal hasn't actually
+// landed anywhere new yet, only detoured out through the loop -- the
+// pedals *inside* the loop (reached via blinkLed below, sound defaulted
+// on) are what should announce themselves.
+function startLedBlink(nodeId, { sound = true } = {}) {
+  const led = ledElFor(nodeId);
+  if (!led) return;
+  led.classList.add('blinking');
+  if (sound) playEatFruit(nodeId);
 }
 
 // Ends with the LED off again, same as it was on entry: this is a
@@ -1693,6 +1876,71 @@ function startLedBlink(nodeId) {
 // state from renderNodeBox.
 function stopLedBlink(nodeId) {
   ledElFor(nodeId)?.classList.remove('blinking', 'on');
+}
+
+// --- Cascade control (spacebar toggle) ------------------------------------
+//
+// Space starts a cascade the same way clicking the traceable node does, or
+// stops a running one dead -- so nobody's stuck sitting through a whole
+// path's worth of chomping just because they clicked. `cascadeActive`
+// gates every recursive step below (fireTraceEdge bails instead of
+// recursing on, traceFrom bails before doing any work); `stopSignal` is
+// what lets stopCascade() cut short a `setTimeout`-based wait (blinkLed's
+// fixed flicker window) the same instant it cancels every in-flight
+// Animation -- an Animation's own .finished promise settles the moment
+// .cancel() is called, but a plain timer needs its own race to interrupt.
+let cascadeActive = false;
+let TRACEABLE_NODE_ID = null; // set once in renderNodeBox -- see its own comment on why there's exactly one
+const activeAnimations = new Set();
+let stopSignal = { promise: null, resolve: null };
+function resetStopSignal() {
+  stopSignal = { promise: null, resolve: null };
+  stopSignal.promise = new Promise(res => { stopSignal.resolve = res; });
+}
+resetStopSignal();
+
+async function startCascade() {
+  if (cascadeActive || !TRACEABLE_NODE_ID) return;
+  cascadeActive = true;
+  resetStopSignal();
+  await playBeginning(); // gates the whole cascade -- see playBeginning
+  if (!cascadeActive) return; // stopped while the jingle was still playing
+  await startChompLoop(); // one continuous loop for the whole cascade -- see startChompLoop
+  if (!cascadeActive) return; // stopped while the loop was still loading
+  await traceFrom(TRACEABLE_NODE_ID);
+  if (!cascadeActive) return; // aborted mid-flight -- stopCascade() already handled the chomp stop + death cue
+  cascadeActive = false;
+  chompGeneration++;
+  stopChompSource();
+  playDeath(); // the animation ending, one way or another, is what "death" means here -- see stopCascade for the abort path's own call
+}
+
+// Resets every moving/sounding piece back to its idle state, synchronously
+// -- the in-flight recursion unwinds in the background (each fireTraceEdge
+// call sees cascadeActive go false and returns instead of continuing), but
+// nothing should visibly wait on that: this makes the stop read as instant.
+function stopCascade() {
+  if (!cascadeActive) return;
+  cascadeActive = false;
+  stopSignal.resolve();
+  for (const anim of activeAnimations) anim.cancel();
+  activeAnimations.clear();
+  for (const node of NODES_BY_ID.values()) stopLedBlink(node.id);
+  document.querySelectorAll('.connector-trace').forEach(trace => { trace.style.opacity = 0; });
+  fadeOutAndReset(SOUND_BEGINNING);
+  chompGeneration++; // invalidates any startChompLoop() still awaiting its buffer
+  stopChompSource();
+  playDeath();
+  // Deliberately not touched here: an eatfruit one-shot already playing
+  // (e.g. Brig's own long delay tail) keeps going to its own natural end
+  // regardless of the cascade stopping around it -- even across a stop
+  // and later restart, not just while this one stays "active". The LEDs
+  // above still reset visually right away; only the *sound* outlives it.
+}
+
+function toggleCascade() {
+  if (cascadeActive) stopCascade();
+  else startCascade();
 }
 
 // Flickers a just-reached node's LED (if it has one) for a fixed window
@@ -1703,19 +1951,27 @@ function stopLedBlink(nodeId) {
 async function blinkLed(nodeId) {
   if (!ledElFor(nodeId)) return;
   startLedBlink(nodeId);
-  await new Promise(res => setTimeout(res, LED_BLINK_DURATION_MS));
+  await Promise.race([
+    new Promise(res => setTimeout(res, LED_BLINK_DURATION_MS)),
+    stopSignal.promise,
+  ]);
   stopLedBlink(nodeId);
 }
 
 // Plays one connector's own trace ellipse, then continues the cascade
 // from its target -- see traceFrom.
 async function fireTraceEdge({ el, durationMs, toId }, dispatched) {
+  if (!cascadeActive) return;
   el.style.opacity = 1;
-  await el.animate(
+  const anim = el.animate(
     [{ offsetDistance: '0%' }, { offsetDistance: '100%' }],
     { duration: durationMs, easing: 'linear' }
-  ).finished.catch(() => {}); // a mid-flight resize reroutes and detaches this element -- just stop, nothing to recover
+  );
+  activeAnimations.add(anim);
+  await anim.finished.catch(() => {}); // a mid-flight resize reroutes and detaches this element, or stopCascade() cancels it -- either way, just stop, nothing to recover
+  activeAnimations.delete(anim);
   el.style.opacity = 0;
+  if (!cascadeActive) return; // stopped mid-flight -- don't push the cascade on any further
   await traceFrom(toId, dispatched);
 }
 
@@ -1748,13 +2004,13 @@ async function fireTraceEdge({ el, durationMs, toId }, dispatched) {
 // gets its own independent arrival flicker as the bulge passes through
 // *it* -- so more than one LED can be lit at once while a loop is live.
 async function traceFrom(startId, dispatched = new Set()) {
-  if (dispatched.has(startId)) return;
+  if (!cascadeActive || dispatched.has(startId)) return;
   dispatched.add(startId);
   const edges = TRACE_EDGES.get(startId) || [];
   const loopOutEdges = edges.filter(e => e.kind === 'loop-out');
   const otherEdges = edges.filter(e => e.kind !== 'loop-out');
   if (loopOutEdges.length) {
-    startLedBlink(startId);
+    startLedBlink(startId, { sound: false }); // the loop's own master pedal -- see startLedBlink
     await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
     stopLedBlink(startId);
   } else {
@@ -2018,6 +2274,18 @@ async function main() {
     const overlay = root.querySelector('.connector-overlay');
     if (overlay) overlay.style.visibility = 'hidden';
     scheduleRelayout();
+  });
+
+  // Space starts/stops the trace cascade (see toggleCascade) -- the page
+  // has no text inputs, but the hidden power-connectors-toggle checkbox
+  // (index.html) is a real focusable control, so this steps aside for
+  // any actual form control rather than assuming it always owns Space.
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'Space') return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+    e.preventDefault(); // Space's default is page-scroll -- this isn't that
+    toggleCascade();
   });
 }
 
