@@ -19,11 +19,11 @@
     "power": { "x": 0.5, "y": 0.05 }
   },
   "centavo": {
-    "file": "warm-audio-centavo.png",
+    "file": "warm-audio-centavo-2.png",
     "widthMm": 170,
-    "in": { "x": 0.655, "y": 0 },
-    "out": { "x": 0.343, "y": 0, "stub": 24 },
-    "power": { "x": 0.221, "y": 0.015 }
+    "in": { "x": 0.657, "y": 0 },
+    "out": { "x": 0.352, "y": 0, "stub": 24 },
+    "power": { "x": 0.214, "y": 0.011 }
   },
   "tim_v3": {
     "file": "paul-c-tim-v3.png",
