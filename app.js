@@ -326,7 +326,7 @@ function renderNodeBox(node, baseWidthPx) {
     // instead, which is what measureLabelHeights already measured against.
     box.dataset.baseWidth = baseWidthPx;
     const img = sizedImage(node.image, node.name, baseWidthPx);
-    node.el = img; // shapeInfoFor/localRect read the <img> itself, regardless of whether it's link-wrapped below
+    node.el = img; // shapeInfoFor/localRect read the <img> itself directly -- no longer ever link-wrapped, see node.url below
 
     // Shrink-wraps to the image's own rendered box (see calibrate.html's
     // identical .imgwrap) so the LED dot below can be positioned as a
@@ -334,49 +334,64 @@ function renderNodeBox(node, baseWidthPx) {
     // points already use (see jackFraction/portPoint) -- without the
     // node-name label underneath throwing off the percentages.
     const imgWrap = el('div', 'img-wrap');
-
-    if (node.url) {
-      const link = el('a', null, [img]);
-      link.href = node.url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.title = `${node.name} — product page`;
-      imgWrap.append(link);
-    } else {
-      // No product page to send a click to -- free to repurpose the
-      // click instead, tracing the signal path outward from here (see
-      // traceFrom). Every node happens to have a url except the guitar,
-      // so this is guitar-only today without hardcoding its id -- a
-      // future url-less node would just become another valid starting
-      // point, which is a reasonable reading of "nothing else to do with
-      // a click here" rather than a special case to guard against.
-      img.classList.add('node-traceable');
-      img.title = `${node.name} — trace signal path`;
-      TRACEABLE_NODE_ID = node.id; // lets the spacebar shortcut (see startCascade) start from here too
-      img.addEventListener('click', () => startCascade());
-      imgWrap.append(img);
-    }
+    imgWrap.append(img);
 
     const ledFrac = jackFraction(node, 'led');
     if (ledFrac) {
       const led = el('div', 'led-dot');
       led.style.left = (ledFrac.x * 100) + '%';
       led.style.top = (ledFrac.y * 100) + '%';
-      led.title = `${node.name} — toggle LED`;
-      led.addEventListener('click', e => {
-        e.preventDefault(); // don't follow the product-page link underneath
-        e.stopPropagation(); // don't also trigger node-traceable's click
-        led.classList.toggle('on');
-      });
       imgWrap.append(led);
       node.ledEl = led; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
+
+      // The product-page link used to wrap the image, which put it in
+      // direct competition with this same click for the same small
+      // target -- landing on the tiny LED dot instead of the link (or
+      // vice versa) was fiddly enough to be annoying. The link has moved
+      // to the node-name label below instead, so the whole image is free
+      // to mean just one thing: click anywhere on it -- the led-dot
+      // included, it's a plain child of imgWrap so the click still
+      // bubbles up here -- toggles this LED.
+      img.classList.add('led-toggle');
+      img.title = `${node.name} — toggle LED`;
+      imgWrap.addEventListener('click', () => {
+        const isOn = led.classList.toggle('on');
+        if (isOn) playEatFruit(node.id); // same cue as the cascade's own arrival (see blinkLed/playArrivalSound) -- only lighting it, not switching it back off, is "landing here"
+      });
+    } else if (!node.url) {
+      // No product page and no LED to toggle -- free to repurpose the
+      // click instead, tracing the signal path outward from here (see
+      // traceFrom). Every node happens to have a url except the guitar,
+      // so this is guitar-only today without hardcoding its id -- a
+      // future url-less, LED-less node would just become another valid
+      // starting point, a reasonable reading of "nothing else to do with
+      // a click here" rather than a special case to guard against.
+      img.classList.add('node-traceable');
+      img.title = `${node.name} — trace signal path (tap again to stop)`;
+      TRACEABLE_NODE_ID = node.id; // lets the spacebar shortcut (see toggleCascade) start from here too
+      // toggleCascade, not startCascade -- mobile has no spacebar, so
+      // this tap is the only stop control touch users get. Without this,
+      // a tap while the cascade is already running just no-ops (see
+      // startCascade's own cascadeActive guard) and there's no way to cut
+      // it short before it finishes on its own.
+      img.addEventListener('click', () => toggleCascade());
     }
 
     box.append(imgWrap);
   } else {
     box.classList.add('no-image');
   }
-  box.append(el('div', 'node-name', [document.createTextNode(node.name)]));
+  const nameText = document.createTextNode(node.name);
+  if (node.url) {
+    const link = el('a', null, [nameText]);
+    link.href = node.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.title = `${node.name} — product page`;
+    box.append(el('div', 'node-name', [link]));
+  } else {
+    box.append(el('div', 'node-name', [nameText]));
+  }
   if (node.owner) {
     box.append(el('div', 'node-owner', [document.createTextNode(node.owner)]));
   }
@@ -1151,7 +1166,7 @@ const BULGE_MIN_DURATION_S = 0.5;
 
 // Pac-Man body radius -- roughly double the old plain ellipse's total
 // width, per "at a larger size of course".
-const PACMAN_R_PX = 12;
+const PACMAN_R_PX = 15;
 const PACMAN_MOUTH_DEG = 42; // half-angle of the open mouth
 
 // Both `d`s below describe the shape in its own local space, centered on
@@ -1592,6 +1607,17 @@ function wireConnectors(Avoid, root, sections) {
 
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'connector-overlay');
+  // SVG paints strictly in document order -- there's no z-index to lean
+  // on the way .connector-overlay itself does against pedal photos (see
+  // its own comment in style.css). A bulge/trace living inside its own
+  // connector's <g> only ever paints above *that* connector's own wire,
+  // not every other one -- whichever connector-group happens to get
+  // appended later below paints right over it. One shared layer, held
+  // back and appended after every connector-group (see the bottom of
+  // this function), guarantees every monster, on any connector, paints
+  // above every wire regardless of routing/append order.
+  const pacmanLayer = document.createElementNS(SVG_NS, 'g');
+  pacmanLayer.setAttribute('class', 'pacman-layer');
   drawList.forEach(({ points, kind, label, fromId, toId }, index) => {
     if (points.length < 2) return;
     const d = roundedPathD(points, CORNER_RADIUS_PX, hopsByIndex[index]);
@@ -1635,7 +1661,17 @@ function wireConnectors(Avoid, root, sections) {
       const bulge = makePacman('connector-bulge');
       bulge.style.offsetPath = `path("${d}")`;
       bulge.style.animationDuration = durationS + 's';
-      group.append(bulge);
+      // The bulge lives in the shared pacmanLayer now (see above), not
+      // this connector's own group, so plain CSS `.connector-group:hover
+      // > .connector-bulge` can no longer reach it -- these two listeners
+      // are its replacement, toggling a class on the bulge directly
+      // (style.css keys its hover look off .hovering instead). They fire
+      // on the same hover boundary CSS :hover already used (the group's
+      // own wide .connector-hit stroke, the only interactive thing in
+      // it), so the trigger area is unchanged, just the wiring.
+      group.addEventListener('mouseenter', () => bulge.classList.add('hovering'));
+      group.addEventListener('mouseleave', () => bulge.classList.remove('hovering'));
+      pacmanLayer.append(bulge);
     }
     // The click-cascade only ever follows the actual audio path (see
     // SIGNAL_KINDS) -- power/exp connectors sit out, same reasoning as
@@ -1650,12 +1686,13 @@ function wireConnectors(Avoid, root, sections) {
     if (SIGNAL_KINDS.has(kind)) {
       const trace = makePacman('connector-trace');
       trace.style.offsetPath = `path("${d}")`;
-      group.append(trace);
+      pacmanLayer.append(trace); // shared layer too -- see pacmanLayer's own comment above
       if (!traceEdgesByFromId.has(fromId)) traceEdgesByFromId.set(fromId, []);
-      traceEdgesByFromId.get(fromId).push({ el: trace, durationMs: durationS * 1000, toId, kind });
+      traceEdgesByFromId.get(fromId).push({ el: trace, durationMs: durationS * 1000, toId, kind, d }); // d: lets showStartPreview (see startCascade) draw its own stationary pose on the same routed path without re-deriving it
     }
     svg.append(group);
   });
+  svg.append(pacmanLayer); // last -- see pacmanLayer's own comment above for why document order matters here
   root.append(svg);
   return traceEdgesByFromId;
 }
@@ -1681,13 +1718,38 @@ let TRACE_EDGES = new Map();
 //    layering two copies of the same one-shot is exactly the "annoying"
 //    the user flagged -- so a trigger while one's already playing just
 //    rides along silently instead of stacking another copy.
-const SOUND_BEGINNING = new Audio('/sounds/pacman_beginning.wav');
-const SOUND_DEATH = new Audio('/sounds/pacman_death.wav');
+//  - eatghost: the same one-shot-event shape as eatfruit, but for the
+//    signal reaching a place="free" node (amp, PSU, ...) instead of a
+//    pedal's own LED -- those have no LED to land on and so no eatfruit
+//    clip of their own (see blinkLed), but arrival there should still
+//    announce itself. One shared clip for every such node, same
+//    already-playing mutex as eatfruit, just not keyed per node since
+//    there's only the one clip.
+const SOUND_BEGINNING = new Audio('/sounds/pacman_beginning.mp3');
+const SOUND_DEATH = new Audio('/sounds/pacman_death.mp3');
 function playDeath() {
   SOUND_DEATH.currentTime = 0;
   SOUND_DEATH.play().catch(() => {});
 }
-const DEFAULT_EATFRUIT_URL = '/sounds/pacman_eatfruit.wav';
+// The cascade's own natural finish (traceFrom running the whole signal
+// path to its end, see startCascade) gets the arcade's between-levels
+// jingle rather than the death cue -- death is reserved for a stop cut
+// short by the user instead (see stopCascade), the opposite pairing from
+// the arcade original but the one that reads right here: finishing the
+// board is a good thing, only an interrupted cascade should sound like
+// dying.
+const SOUND_INTERMISSION = new Audio('/sounds/pacman_intermission.mp3');
+function playIntermission() {
+  SOUND_INTERMISSION.currentTime = 0;
+  SOUND_INTERMISSION.play().catch(() => {});
+}
+const DEFAULT_EATFRUIT_URL = '/sounds/pacman_eatfruit.mp3';
+const SOUND_EATGHOST = new Audio('/sounds/pacman_eatghost.mp3');
+function playEatGhost() {
+  if (!SOUND_EATGHOST.paused) return;
+  SOUND_EATGHOST.currentTime = 0;
+  SOUND_EATGHOST.play().catch(() => {});
+}
 
 // Gates the very start of a trace cascade (see the telecaster's click
 // handler in renderNodeBox) -- awaited before traceFrom() is even called,
@@ -1751,12 +1813,39 @@ function getAudioCtx() {
 // chomp start/stop below ramps chompGain across this many seconds first
 // so there's nothing left to jump.
 const DECLICK_S = 0.012;
-const CHOMP_GAIN = 0.6; // chomp runs the whole cascade now (see startChompLoop) -- turned down so it sits behind eatfruit instead of dominating
+const CHOMP_GAIN = 0.5; // chomp runs the whole cascade now (see startChompLoop) -- turned down so it sits behind eatfruit instead of dominating
+// With more than one trace ellipse animating at once (a fork, e.g.
+// P-Split, firing several outgoing edges in parallel -- see traceFrom),
+// the same single shared loop is standing in for several simultaneous
+// chomps at once, so it's let through less attenuated than the
+// one-monster case above instead of sounding no different from it.
+const CHOMP_GAIN_MULTI = 0.85;
+
+// The gain the loop should currently be at, given how many trace
+// ellipses (see activeAnimations) are animating right now.
+function targetChompGain() {
+  return activeAnimations.size > 1 ? CHOMP_GAIN_MULTI : CHOMP_GAIN;
+}
+
+// Re-ramps the already-running loop to whatever targetChompGain() says
+// now -- called whenever activeAnimations' size changes (see
+// fireTraceEdge), not just at start/stop, so the loop swells and settles
+// as monsters join/leave a fork instead of staying fixed at whatever
+// gain happened to apply when it started. A no-op while nothing's
+// playing: startChompLoop reads targetChompGain() itself when it starts.
+function updateChompGain() {
+  if (!chompSource) return;
+  const ctx = getAudioCtx();
+  const now = ctx.currentTime;
+  chompGain.gain.cancelScheduledValues(now);
+  chompGain.gain.setValueAtTime(chompGain.gain.value, now);
+  chompGain.gain.linearRampToValueAtTime(targetChompGain(), now + DECLICK_S);
+}
 
 let chompBufferPromise = null;
 function getChompBuffer() {
   if (!chompBufferPromise) {
-    chompBufferPromise = fetch('/sounds/pacman_chomp.mp3')
+    chompBufferPromise = fetch('/sounds/pacman_chomp-edited.mp3')
       .then(res => res.arrayBuffer())
       .then(bytes => getAudioCtx().decodeAudioData(bytes));
   }
@@ -1787,7 +1876,7 @@ async function startChompLoop() {
   const now = ctx.currentTime;
   chompGain.gain.cancelScheduledValues(now);
   chompGain.gain.setValueAtTime(0, now);
-  chompGain.gain.linearRampToValueAtTime(CHOMP_GAIN, now + DECLICK_S);
+  chompGain.gain.linearRampToValueAtTime(targetChompGain(), now + DECLICK_S);
   chompSource.start();
 }
 
@@ -1840,6 +1929,19 @@ function playEatFruit(nodeId) {
   audio.play().catch(() => {});
 }
 
+// The one arrival cue for any node the cascade reaches, regardless of
+// whether it's a plain stop or a loop's own master (see traceFrom) --
+// there used to be a "no sound on entering a loop master" rule, on the
+// theory that the signal hasn't really left it yet, but that just read
+// as a mysteriously silent pedal to anyone watching, so every node now
+// announces itself the same way the moment it's reached. eatghost for a
+// place="free" node (no LED to land on), eatfruit for one that has an
+// LED, nothing for a board node with neither.
+function playArrivalSound(nodeId) {
+  if (NODES_BY_ID.get(nodeId)?.place === 'free') playEatGhost();
+  else if (ledElFor(nodeId)) playEatFruit(nodeId);
+}
+
 // id -> node object, so fireTraceEdge (below) can find a just-arrived-at
 // node's LED without threading node references through the whole
 // TRACE_EDGES/traceFrom cascade. Set once in main() -- unlike TRACE_EDGES
@@ -1859,16 +1961,14 @@ function ledElFor(nodeId) {
   return NODES_BY_ID.get(nodeId)?.ledEl;
 }
 
-// `sound: false` is for a loop's own master pedal (see traceFrom): its LED
-// stays lit for the whole round trip, but the signal hasn't actually
-// landed anywhere new yet, only detoured out through the loop -- the
-// pedals *inside* the loop (reached via blinkLed below, sound defaulted
-// on) are what should announce themselves.
-function startLedBlink(nodeId, { sound = true } = {}) {
+// Purely the visual -- callers wanting the arrival sound too call
+// playArrivalSound themselves (see traceFrom and blinkLed below), since
+// a loop's own master pedal wants its LED handled differently (lit for
+// the whole round trip, not this fixed flicker) but the same sound.
+function startLedBlink(nodeId) {
   const led = ledElFor(nodeId);
   if (!led) return;
   led.classList.add('blinking');
-  if (sound) playEatFruit(nodeId);
 }
 
 // Ends with the LED off again, same as it was on entry: this is a
@@ -1899,20 +1999,59 @@ function resetStopSignal() {
 }
 resetStopSignal();
 
+// A one-off "get ready" pose, mouth open and holding still (no addChomp
+// SMIL child, unlike every other Pac-Man makePacman builds -- nothing's
+// actually moving yet), planted at offset-distance 0% on each of the
+// guitar's own outgoing connectors while playBeginning()'s jingle plays.
+// A plain new <path> per edge rather than reusing that edge's own
+// .connector-trace: the trace's chomp animation runs continuously and
+// indefinitely from the moment it's built (see addChomp), so there's no
+// clean way to freeze it open on demand -- easier to draw a separate,
+// throwaway shape on the same routed `d` (see wireConnectors) and just
+// remove it once the real cascade takes over.
+let startPreviewEls = [];
+function showStartPreview() {
+  const svg = document.querySelector('.connector-overlay');
+  if (!svg) return;
+  const edges = TRACE_EDGES.get(TRACEABLE_NODE_ID) || [];
+  startPreviewEls = edges.map(({ d }) => {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('class', 'pacman-preview');
+    path.setAttribute('d', pacmanOpenD(PACMAN_R_PX, PACMAN_MOUTH_DEG));
+    path.style.offsetPath = `path("${d}")`;
+    svg.append(path);
+    return path;
+  });
+}
+function hideStartPreview() {
+  for (const path of startPreviewEls) path.remove();
+  startPreviewEls = [];
+}
+
 async function startCascade() {
   if (cascadeActive || !TRACEABLE_NODE_ID) return;
   cascadeActive = true;
+  document.body.classList.add('cascade-active'); // marches every power connector's dashes for the cascade's whole duration -- see style.css
   resetStopSignal();
+  showStartPreview();
   await playBeginning(); // gates the whole cascade -- see playBeginning
+  hideStartPreview(); // whether the jingle ran to completion or startCascade is about to bail below -- either way, the real cascade (or nothing) takes over from here
   if (!cascadeActive) return; // stopped while the jingle was still playing
   await startChompLoop(); // one continuous loop for the whole cascade -- see startChompLoop
   if (!cascadeActive) return; // stopped while the loop was still loading
-  await traceFrom(TRACEABLE_NODE_ID);
-  if (!cascadeActive) return; // aborted mid-flight -- stopCascade() already handled the chomp stop + death cue
+  // propagateFrom, not traceFrom -- the guitar is where the signal
+  // starts, not somewhere it's arrived at, so it skips enterNode's
+  // arrival cue entirely (see traceFrom) rather than needing to suppress
+  // it after the fact. Its own id still has to go into `dispatched` up
+  // front, same as traceFrom would do for any other node, so a cycle
+  // leading back to the guitar (were one ever wired up) can't retrigger it.
+  await propagateFrom(TRACEABLE_NODE_ID, new Set([TRACEABLE_NODE_ID]));
+  if (!cascadeActive) return; // aborted mid-flight -- stopCascade() already handled the chomp stop + its own death cue
   cascadeActive = false;
+  document.body.classList.remove('cascade-active');
   chompGeneration++;
   stopChompSource();
-  playDeath(); // the animation ending, one way or another, is what "death" means here -- see stopCascade for the abort path's own call
+  playIntermission(); // only reached when traceFrom ran the whole path to its own natural end, not when stopCascade cut it short
 }
 
 // Resets every moving/sounding piece back to its idle state, synchronously
@@ -1922,20 +2061,26 @@ async function startCascade() {
 function stopCascade() {
   if (!cascadeActive) return;
   cascadeActive = false;
+  document.body.classList.remove('cascade-active');
   stopSignal.resolve();
   for (const anim of activeAnimations) anim.cancel();
   activeAnimations.clear();
   for (const node of NODES_BY_ID.values()) stopLedBlink(node.id);
   document.querySelectorAll('.connector-trace').forEach(trace => { trace.style.opacity = 0; });
+  // Also covers a stop mid-jingle: fadeOutAndReset below only pauses
+  // SOUND_BEGINNING, which never fires the 'ended' event playBeginning()
+  // is awaiting in startCascade -- that await could sit unresolved far
+  // longer than this stop takes, so the preview can't just wait for it.
+  hideStartPreview();
   fadeOutAndReset(SOUND_BEGINNING);
   chompGeneration++; // invalidates any startChompLoop() still awaiting its buffer
   stopChompSource();
-  playDeath();
+  playDeath(); // a stop cut short by the user is what death means here -- the intermission jingle (see startCascade) is reserved for the cascade finishing on its own
   // Deliberately not touched here: an eatfruit one-shot already playing
-  // (e.g. Brig's own long delay tail) keeps going to its own natural end
-  // regardless of the cascade stopping around it -- even across a stop
-  // and later restart, not just while this one stays "active". The LEDs
-  // above still reset visually right away; only the *sound* outlives it.
+  // (e.g. Brig's own long delay tail) is short enough to just let finish
+  // on its own rather than cut off mid-clip -- even across a stop and
+  // later restart, not just while this one stays "active". The LEDs above
+  // still reset visually right away; only the *sound* outlives it.
 }
 
 function toggleCascade() {
@@ -1943,12 +2088,17 @@ function toggleCascade() {
   else startCascade();
 }
 
-// Flickers a just-reached node's LED (if it has one) for a fixed window
-// before the cascade pushes the bulge on out -- see traceFrom. Nodes with
-// their own FX loop don't use this: their LED instead stays lit for the
-// whole loop round trip (traceFrom handles that directly), since the
-// signal hasn't actually left yet.
+// Announces a just-reached node (see playArrivalSound) and, if it has an
+// LED, flickers it for a fixed window before the cascade pushes the
+// bulge on out -- see traceFrom. Nodes with their own FX loop don't use
+// this: their LED instead stays lit for the whole loop round trip
+// (traceFrom handles that directly), same arrival sound either way.
+//
+// A place="free" node (amp, PSU, ...) has no LED to blink at all, so
+// there's nothing to wait on -- the sound alone is its whole cue, and
+// traceFrom moves on right after.
 async function blinkLed(nodeId) {
+  playArrivalSound(nodeId);
   if (!ledElFor(nodeId)) return;
   startLedBlink(nodeId);
   await Promise.race([
@@ -1968,55 +2118,71 @@ async function fireTraceEdge({ el, durationMs, toId }, dispatched) {
     { duration: durationMs, easing: 'linear' }
   );
   activeAnimations.add(anim);
+  updateChompGain(); // one more monster chomping at once -- see CHOMP_GAIN_MULTI
   await anim.finished.catch(() => {}); // a mid-flight resize reroutes and detaches this element, or stopCascade() cancels it -- either way, just stop, nothing to recover
   activeAnimations.delete(anim);
+  updateChompGain(); // back down if that was the last of a fork's parallel monsters
   el.style.opacity = 0;
   if (!cascadeActive) return; // stopped mid-flight -- don't push the cascade on any further
   await traceFrom(toId, dispatched);
 }
 
-// Follows the signal path outward from `startId`, firing each reached
-// connector's trace ellipse (see wireConnectors) once its own source has
-// been reached, and every diverging branch at a fork (e.g. P-Split) in
-// parallel. `dispatched` is what makes a cycle (Tim V3's send/return loop
-// through Brig) terminate instead of re-triggering forever: a node sends
-// its own outgoing edges at most once no matter how many different edges
-// later lead back to it.
-//
-// An effects-loop send (kind=loop-out) is dispatched, and fully awaited,
-// *before* this node's other outgoing edges -- an insert's main `out`
-// doesn't carry anything real until whatever's patched into its loop has
-// actually returned it, so firing both at once (as every other kind
-// does) would race the loop. Awaiting fireTraceEdge's own chain for the
-// loop-out edge already covers the whole round trip for free: it
-// recurses into whatever the loop feeds, which (by construction, a
-// loop-out always has a matching loop-in landing back on this same node)
-// dispatches that return edge as one of *its* own outgoing edges, and
-// this node is already in `dispatched` by then -- so no separate
-// "wait for the loop-in port" bookkeeping is needed, and nothing here
-// names Tim V3, Brig, Engl, or any other specific device.
-//
-// A node with its own loop (kind=loop-out present, whether it's an
-// insert pedal or an amp's built-in loop) keeps its LED lit for that
-// entire round trip instead of the normal fixed-duration flicker: the
-// signal hasn't actually left this node yet, only detoured out through
-// the loop and back. Whatever's patched into the loop (e.g. Brig) still
-// gets its own independent arrival flicker as the bulge passes through
-// *it* -- so more than one LED can be lit at once while a loop is live.
+// Everything that happens on actually *arriving* at nodeId: the arrival
+// sound (see playArrivalSound) and its LED's behavior, whichever fits --
+// a plain fixed-duration flicker, or (for a node with its own loop) held
+// lit for the entire loop round trip instead, since visually the signal
+// really hasn't come back out yet (see propagateFrom below for what
+// "come back out" fires). There used to be a "no sound here, the signal
+// hasn't left yet" rule for a loop's own master pedal, but a pedal that
+// just sits there silent while everything around it chomps away read as
+// a bug rather than a deliberate loop, so every node's arrival sounds
+// the same now regardless of what it does afterward -- only the LED
+// still tells a loop apart from a plain stop. Whatever's patched into
+// the loop (e.g. Brig) still gets its own independent arrival flicker as
+// the bulge passes through *it* -- so more than one LED can be lit at
+// once while a loop is live. Only ever called from traceFrom below, on
+// a node the signal has actually just reached via some connector.
+async function enterNode(nodeId, dispatched) {
+  const loopOutEdges = (TRACE_EDGES.get(nodeId) || []).filter(e => e.kind === 'loop-out');
+  if (loopOutEdges.length) {
+    playArrivalSound(nodeId);
+    startLedBlink(nodeId);
+    await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
+    stopLedBlink(nodeId);
+  } else {
+    await blinkLed(nodeId);
+  }
+}
+
+// Fires nodeId's own outgoing edges that aren't a loop-out (those are
+// already handled, and awaited, inside enterNode above, *before* these --
+// an insert's main `out` doesn't carry anything real until whatever's
+// patched into its loop has actually returned it, so firing both at once
+// would race the loop) -- every diverging branch at a fork (e.g.
+// P-Split) fires in parallel. Shared by every node the cascade reaches,
+// the guitar included (see startCascade): unlike enterNode, propagating
+// onward isn't tied to "arriving" anywhere, it's just what happens next
+// regardless of whether this node itself was entered or is where the
+// whole cascade began.
+async function propagateFrom(nodeId, dispatched) {
+  const otherEdges = (TRACE_EDGES.get(nodeId) || []).filter(e => e.kind !== 'loop-out');
+  await Promise.all(otherEdges.map(e => fireTraceEdge(e, dispatched)));
+}
+
+// Follows the signal path outward from `startId`: enterNode's arrival
+// cue, then propagateFrom's fan-out. `dispatched` is what makes a cycle
+// (Tim V3's send/return loop through Brig) terminate instead of
+// re-triggering forever: a node sends its own outgoing edges at most
+// once no matter how many different edges later lead back to it. This is
+// only ever reached via an actual connector (see fireTraceEdge) -- the
+// guitar's own start (see startCascade) calls propagateFrom directly
+// instead, skipping enterNode entirely, since the guitar is where the
+// signal *starts*, not somewhere it's arrived at.
 async function traceFrom(startId, dispatched = new Set()) {
   if (!cascadeActive || dispatched.has(startId)) return;
   dispatched.add(startId);
-  const edges = TRACE_EDGES.get(startId) || [];
-  const loopOutEdges = edges.filter(e => e.kind === 'loop-out');
-  const otherEdges = edges.filter(e => e.kind !== 'loop-out');
-  if (loopOutEdges.length) {
-    startLedBlink(startId, { sound: false }); // the loop's own master pedal -- see startLedBlink
-    await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
-    stopLedBlink(startId);
-  } else {
-    await blinkLed(startId);
-  }
-  await Promise.all(otherEdges.map(e => fireTraceEdge(e, dispatched)));
+  await enterNode(startId, dispatched);
+  await propagateFrom(startId, dispatched);
 }
 
 function nextFrame() {

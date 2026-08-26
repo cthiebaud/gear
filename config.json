@@ -19,7 +19,7 @@
     "out": { "x": 0.285, "y": 0 },
     "power": { "x": 0.5, "y": 0.05 },
     "led": { "x": 0.5, "y": 0.133 },
-    "eatfruit": "pacman_eatfruit-ua1176.wav"
+    "eatfruit": "pacman_eatfruit-ua1176.mp3"
   },
   "centavo": {
     "file": "warm-audio-centavo.png",
@@ -28,7 +28,7 @@
     "out": { "x": 0.352, "y": 0, "stub": 24 },
     "power": { "x": 0.214, "y": 0.011 },
     "led": { "x": 0.09, "y": 0.388 },
-    "eatfruit": "pacman_eatfruit-centavo.wav"
+    "eatfruit": "pacman_eatfruit-centavo.mp3"
   },
   "tim_v3": {
     "file": "paul-c-tim-v3.png",
@@ -38,7 +38,8 @@
     "loopOut": { "x": 0.667, "y": 0 },
     "loopIn": { "x": 0.333, "y": 0 },
     "power": { "x": 0.5, "y": 0.03 },
-    "led": { "x": 0.164, "y": 0.65 }
+    "led": { "x": 0.164, "y": 0.65 },
+    "eatfruit": "pacman_eatfruit-tim_v3-edited.mp3"
   },
   "brig": {
     "file": "strymon-brig.png",
@@ -47,7 +48,7 @@
     "out": { "x": 0.579, "y": 0 },
     "power": { "x": 0.125, "y": 0.027 },
     "led": { "x": 0.5, "y": 0.135 },
-    "eatfruit": "pacman_eatfruit-brig.wav"
+    "eatfruit": "pacman_eatfruit-brig-edited.mp3"
   },
   "electric_blue_chorus": {
     "file": "mad-professor-electric-blue.png",
@@ -56,7 +57,7 @@
     "out": { "x": 0, "y": 0.5 },
     "power": { "x": 0.962, "y": 0.7, "stub": 40 },
     "led": { "x": 0.498, "y": 0.066 },
-    "eatfruit": "pacman_eatfruit-electric_blue_chorus.wav"
+    "eatfruit": "pacman_eatfruit-electric_blue_chorus.mp3"
   },
   "capistan": {
     "file": "strymon-elcap-v2.png",
@@ -66,7 +67,7 @@
     "exp": { "x": 0.462, "y": 0 },
     "power": { "x": 0.12, "y": 0.025 },
     "led": { "x": 0.817, "y": 0.678 },
-    "eatfruit": "pacman_eatfruit-capistan.wav"
+    "eatfruit": "pacman_eatfruit-capistan-edited.mp3"
   },
   "bluesky": {
     "file": "strymon-bluesky.png",
@@ -75,7 +76,7 @@
     "out": { "x": 0.271, "y": 0 },
     "power": { "x": 0.12, "y": 0.025 },
     "led": { "x": 0.814, "y": 0.668 },
-    "eatfruit": "pacman_eatfruit-bluesky.wav"
+    "eatfruit": "pacman_eatfruit-bluesky.mp3"
   },
   "psplit": {
     "file": "lehle-p-split-iii.png",

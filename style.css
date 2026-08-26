@@ -6,31 +6,38 @@
   --muted: #79766d;
   --accent: #b5442e;
   --wire: #69665c;
-  --wire-loop: #8a877d;
+  --wire-loop: #7c786c;
   --wire-power: #95a57d;
-  --wire-exp: #3a6ea5;
+  --wire-exp: #335f8e;
   --wire-arrow-out: #4f7a3d;
   --wire-arrow-in: #b23a2a;
   --board-bg: rgba(0, 0, 0, 0.067);
-  --pacman: #ffd400;
+  /* The arcade original is this same yellow on a black cabinet -- against
+     this theme's light board/pedal photos that contrast is gone, so
+     light mode gets a deeper, more saturated gold instead (dark mode
+     keeps the classic arcade shade below) plus a dark outline
+     (--pacman-stroke) on the shape itself, see .connector-bulge/-trace. */
+  --pacman: #e0bb00;
+  --pacman-stroke: rgba(136, 124, 17, 0.461);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #161614;
-    --card-bg: #1f1f1c;
-    --border: #38362f;
+    --bg: #52524b;
+    --card-bg: #747468;
+    --border: #3c3c36;
     --text: #ece9e1;
-    --muted: #9a968a;
-    --accent: #e2794f;
-    --wire: #6c675c;
-    --wire-loop: #c2673f;
-    --wire-power: #a3b889;
-    --wire-exp: #7aa7d9;
-    --wire-arrow-out: #7cb56a;
-    --wire-arrow-in: #e0705f;
-    --board-bg: rgba(255, 255, 255, 0.067);
+    --muted: #c4bfb1;
+    --accent: #b5442e;
+    --wire: #0d0d0d;
+    --wire-loop: #343333;
+    --wire-power: #7a8a67;
+    --wire-exp: #5f73c2;
+    --wire-arrow-out: #6b9b56;
+    --wire-arrow-in: #ca4e3e;
+    --board-bg: rgba(163, 151, 151, 0.41);
     --pacman: #ffd400;
+    --pacman-stroke: rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -191,9 +198,19 @@ header h1 {
    box (a routed corner right at the edge) still paints instead of being
    clipped. pointer-events is off since the overlay sits on top of the
    whole board and shouldn't intercept clicks/hover.
+
+   z-index is required, not just DOM order, to actually win that "on top"
+   -- .node-box sets its own z-index:1 (see below), which makes each
+   pedal a positioned stacking context in its own right rather than plain
+   in-flow content, and a positioned box with any explicit z-index always
+   paints after a position:absolute sibling stuck at the implicit
+   z-index:auto/0 level, regardless of DOM order. Without this, the
+   traveling Pac-Man (bulge/trace, riding right up to each pin) ducks
+   behind the pedal photo it's approaching instead of crossing over it.
 */
 .connector-overlay {
   position: absolute;
+  z-index: 2;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -281,16 +298,22 @@ path.connector-hit {
 
 /* Specificity (0,2,1) beats every .connector-KIND rule below regardless
    of source order, so one rule covers every kind uniformly. The bulge
-   and trace are <path>s too now (see makePacman in app.js) but are their
-   own painted shape, not a wire outline -- excluded here the same way
-   .connector-hit already is, so hovering doesn't stroke an outline
-   around Pac-Man's body or (below) march his edge like a dashed wire. */
-.connector-group:hover > path:not(.connector-hit, .connector-bulge, .connector-trace) {
-  stroke: var(--accent);
+   and trace used to live right here too (see makePacman in app.js) but
+   don't any more -- they're their own painted shape in a separate shared
+   layer now (see pacmanLayer in wireConnectors), not a wire outline, so
+   this only ever reaches an actual connector path regardless. */
+.connector-group:hover > path:not(.connector-hit) {
+  /* stroke: var(--accent); */
   stroke-width: 3.5;
 }
 
-.connector-group:hover > .connector-bulge {
+/* The bulge lives in the shared pacmanLayer, not this connector's own
+   group (see wireConnectors), so plain `.connector-group:hover > ...`
+   can't reach it -- .hovering is toggled directly on the bulge by a
+   mouseenter/mouseleave pair set up right where it's built, on the same
+   hover boundary (the group's own wide .connector-hit stroke) this used
+   to key off of. */
+.connector-bulge.hovering {
   opacity: 1;
 }
 
@@ -299,7 +322,7 @@ path.connector-hit {
    and the bulge's fade-in still show for prefers-reduced-motion users,
    just without anything actually moving. */
 @media (prefers-reduced-motion: no-preference) {
-  .connector-group:hover > path:not(.connector-hit, .connector-bulge, .connector-trace) {
+  .connector-group:hover > path:not(.connector-hit) {
     animation-name: connector-march;
     animation-duration: 1s;
     animation-timing-function: linear;
@@ -309,29 +332,70 @@ path.connector-hit {
      rule above) -- it's set inline per element in app.js instead (see
      BULGE_SPEED_PX_S), since unlike the march's fixed 1s, each
      connector's own routed length needs its own travel time. */
-  .connector-group:hover > .connector-bulge {
+  .connector-bulge.hovering {
     animation-name: connector-travel;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+
+  /* Power wires don't carry the guitar's own signal, so they never take
+     part in the click-triggered trace cascade the way SIGNAL_KINDS
+     connectors do (see traceFrom in app.js) -- but every pedal is
+     drawing power for the cascade's whole duration, not just while the
+     bulge happens to be passing near it, so all of them march at once
+     here rather than one at a time. .cascade-active is toggled on <body>
+     by startCascade/stopCascade, independently of :hover above -- the
+     two states can overlap freely (hovering a power wire mid-cascade
+     just keeps marching, nothing conflicts). */
+  body.cascade-active .connector-power {
+    animation-name: connector-march;
+    animation-duration: 1s;
     animation-timing-function: linear;
     animation-iteration-count: infinite;
   }
 }
 
-/* Hidden by default -- .connector-bulge until hovered (see
-   .connector-group:hover > .connector-bulge above), .connector-trace
-   until traceFrom() (app.js) toggles its opacity directly for its own
-   one-shot click-triggered travel, driven by the Web Animations API
-   rather than a CSS animation. offset-rotate: auto turns either to face
-   the path's own tangent as it travels -- makePacman() (app.js) draws
-   the local shape with its mouth toward local +x, so this is what keeps
-   the mouth pointing the way it's actually moving around every bend.
-   Both are <path>s (see makePacman), so the shared `> path { fill: none
-   }` reset above *would* otherwise win here on specificity alone --
-   qualified with .connector-group so this rule outranks it. */
-.connector-group path.connector-bulge,
-.connector-group path.connector-trace {
+/* Hidden by default -- .connector-bulge until .hovering is added (see
+   above), .connector-trace until traceFrom() (app.js) toggles its
+   opacity directly for its own one-shot click-triggered travel, driven
+   by the Web Animations API rather than a CSS animation. offset-rotate:
+   auto turns either to face the path's own tangent as it travels --
+   makePacman() (app.js) draws the local shape with its mouth toward
+   local +x, so this is what keeps the mouth pointing the way it's
+   actually moving around every bend. Both live directly under
+   .pacman-layer's own <g> (see wireConnectors), which the shared
+   `.connector-overlay > g > path { fill: none }` reset above still
+   reaches just as it would any other g's path -- qualified with
+   .pacman-layer so this rule outranks it on specificity alone. The dark
+   --pacman-stroke outline (on top of --pacman's own deeper light-mode
+   shade, see :root) is what keeps the body readable against a light
+   board/pedal photo -- the plain arcade yellow all but disappears there
+   the way it never would against the original's black cabinet. */
+.pacman-layer path.connector-bulge,
+.pacman-layer path.connector-trace {
   fill: var(--pacman);
+  stroke: var(--pacman-stroke);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
   offset-rotate: auto;
   opacity: 0;
+}
+
+/* The "get ready" pose shown at the guitar's own jack while the opening
+   jingle plays (see showStartPreview in app.js) -- same look as the
+   bulge/trace above, but its own rule rather than sharing theirs: it's
+   appended straight into .connector-overlay, not inside a .connector-group
+   <g>, so it never meets that :not-qualified `fill: none` reset those
+   need outranking for in the first place, and needs to default to
+   visible (opacity: 1) instead of hidden-until-triggered. */
+.pacman-preview {
+  fill: var(--pacman);
+  stroke: var(--pacman-stroke);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  offset-rotate: auto;
+  offset-distance: 0%;
+  pointer-events: none;
 }
 
 .connector-through {
@@ -488,23 +552,30 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   position: absolute;
 }
 
-/* Wraps the image when the node has a `url` (see renderNodeBox) -- block
-   so it shrink-wraps the image with no inline baseline gap underneath,
-   same box the bare <img> would otherwise occupy directly. */
-.node-box a {
-  display: block;
+/* The product-page link (see renderNodeBox) lives on the node-name label
+   now, not wrapping the image -- inheriting the label's own color/weight
+   keeps it reading as the pedal's name first and a link second, with
+   just enough of a dotted underline to still say "clickable". */
+.node-name a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted);
 }
 
-/* Shrink-wraps to the image's (or its product-page link's) own rendered
-   box -- same technique as calibrate.html's .imgwrap -- so .led-dot's x/y
-   % below lands on the exact fraction-of-image-box that config.json's
-   jack points already use (see app.js's jackFraction/portPoint), rather
-   than a box inflated by the node-name label underneath. The label gap
-   lives here instead of on the img itself for the same reason: a
-   bottom margin on the img would still inflate this wrap's own auto
-   height (inline-block establishes a new formatting context, which
-   stops the margin from collapsing *out* but doesn't stop it from
-   still occupying space *inside*). */
+.node-name a:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Shrink-wraps to the image's own rendered box -- same technique as
+   calibrate.html's .imgwrap -- so .led-dot's x/y % below lands on the
+   exact fraction-of-image-box that config.json's jack points already use
+   (see app.js's jackFraction/portPoint), rather than a box inflated by
+   the node-name label underneath. The label gap lives here instead of on
+   the img itself for the same reason: a bottom margin on the img would
+   still inflate this wrap's own auto height (inline-block establishes a
+   new formatting context, which stops the margin from collapsing *out*
+   but doesn't stop it from still occupying space *inside*). */
 .img-wrap {
   position: relative;
   display: inline-block;
@@ -559,10 +630,17 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 170, 60, 0.85);
 }
 
-/* The one node with no product url to open instead (see renderNodeBox)
-   -- cursor is the only static affordance; nothing else marks it as
-   clickable, same restraint as a plain <img> anywhere else on the page. */
+/* The guitar, the one node with neither an LED nor a product url (see
+   renderNodeBox) -- cursor is the only static affordance; nothing else
+   marks it as clickable, same restraint as a plain <img> anywhere else
+   on the page. */
 .node-box img.node-traceable {
+  cursor: pointer;
+}
+
+/* Any pedal with an LED -- clicking anywhere on the image toggles it
+   (see renderNodeBox), not just the tiny .led-dot itself. */
+.node-box img.led-toggle {
   cursor: pointer;
 }
 
