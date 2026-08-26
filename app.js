@@ -80,15 +80,21 @@ const PX_PER_MM = 2.2;
 // on the left, matching how this rig is actually wired -- so `in` is
 // always the larger x of the pair. Port names here must match the
 // `<port>` names declared in that device's DOT record/HTML label exactly
-// -- that's the only place the two are tied together. `stub: N` overrides,
+// -- that's the only place the two are tied together. `stub: F` overrides,
 // for that one jack, the minimum straight run wireConnectors otherwise
 // computes before its connector's first bend (MIN_STUB_PX, plus
 // LANE_STEP_PX per further connector sharing the node -- see
 // wireConnectors) -- e.g. `stub: 0` for a jack where that computed
-// minimum reads as an awkward kink against a neighboring pedal. Nothing
-// else about routing changes: the connector's own lane index is still
-// consumed as usual (so later connectors on the same node still get
-// spaced past it), only the length it's compared against is replaced.
+// minimum reads as an awkward kink against a neighboring pedal. F is a
+// fraction of *this device's own* real-world width (nodeRealWidthPx),
+// same convention as x/y above, not an absolute px count -- a stub
+// tuned by eye on one pedal's photo should still look proportionally
+// right if that pedal's widthMm or config.json's shared PX_PER_MM ever
+// changes, rather than silently drifting into an absolute length that
+// no longer matches the device it was tuned against. Nothing else about
+// routing changes: the connector's own lane index is still consumed as
+// usual (so later connectors on the same node still get spaced past
+// it), only the length it's compared against is replaced.
 // `sidebar: true` renders the node beside the packed rows instead of
 // inside one (see renderPage). Loaded at runtime from a JSON file
 // (`${configName}.json`, see main()) rather than baked in here, same
@@ -432,10 +438,30 @@ const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for a
 const WIRE_WEIGHT = { power: 0 };
 function wireWeight(kind) { return WIRE_WEIGHT[kind] ?? 1; }
 
+// No prior breakpoint existed anywhere in this file -- the whole layout
+// already solves for whatever scale fits any given viewport (see
+// applyScale), phone or desktop alike, so this isn't about making things
+// smaller in general (that already happens on its own). It's specifically
+// about *relative* proportions: on a narrow screen the guitar/amps/PSU
+// (place="free", see the vocabulary comment near VALID_PLACES) can crowd
+// out the actual pedalboard, which is the part anyone's really here to
+// look at, so those get shrunk relative to the pedals instead of scaling
+// down together with them. 600 is an arbitrary but common "phone-sized"
+// cutoff -- nothing else in the layout depends on this exact number.
+const SMALL_SCREEN_MAX_PX = 600;
+const FREE_NODE_SMALL_SCREEN_SCALE = 2 / 3;
+function isSmallScreen() {
+  return window.innerWidth <= SMALL_SCREEN_MAX_PX;
+}
+
 // True real-world-scale width, before the solved `scale` is applied --
-// every node renders at this.
+// every node renders at this. Read fresh on every relayout (a resize
+// re-solves the whole layout from scratch, see relayout() in main()), so
+// crossing SMALL_SCREEN_MAX_PX in either direction reliably reflows free
+// nodes to the right size, not just whatever it happened to be on load.
 function nodeRealWidthPx(node) {
-  return node.spec ? node.spec.widthMm * PX_PER_MM : DEFAULT_WIDTH_PX;
+  const w = node.spec ? node.spec.widthMm * PX_PER_MM : DEFAULT_WIDTH_PX;
+  return (node.place === 'free' && isSmallScreen()) ? w * FREE_NODE_SMALL_SCREEN_SCALE : w;
 }
 
 // Real (photographed) aspect ratio, read once by preloadImages (see
@@ -1571,8 +1597,12 @@ function wireConnectors(Avoid, root, sections) {
       // the length this particular connector is held to changes.
       const fromLane = nextLane(link.from);
       const toLane = nextLane(link.to);
-      const fromMinLen = fromFrac.stub ?? (MIN_STUB_PX + fromLane * LANE_STEP_PX);
-      const toMinLen = toFrac.stub ?? (MIN_STUB_PX + toLane * LANE_STEP_PX);
+      // stub is a fraction of the jack's own device width now, not an
+      // absolute px count (see the vocabulary comment above) -- resolved
+      // against nodeRealWidthPx here, where the actual node (not just its
+      // jack fraction object) is still in scope.
+      const fromMinLen = fromFrac.stub == null ? (MIN_STUB_PX + fromLane * LANE_STEP_PX) : fromFrac.stub * nodeRealWidthPx(link.from);
+      const toMinLen = toFrac.stub == null ? (MIN_STUB_PX + toLane * LANE_STEP_PX) : toFrac.stub * nodeRealWidthPx(link.to);
       const label = `${link.from.name}.${link.fromPoint} -> ${link.to.name}.${link.toPoint}`;
       drawList.push({ connRef, kind: link.kind, fromEdge, toEdge, fromMinLen, toMinLen, label, fromId: link.from.id, toId: link.to.id });
     }
@@ -1990,6 +2020,22 @@ function stopLedBlink(nodeId) {
 // Animation -- an Animation's own .finished promise settles the moment
 // .cancel() is called, but a plain timer needs its own race to interrupt.
 let cascadeActive = false;
+// Single write site for cascadeActive -- every place that used to assign
+// it directly goes through this instead, so the header's play/stop
+// button (see index.html) and the power-wire march (see style.css) can
+// never drift out of sync with the actual state, no matter which of the
+// cascade's several triggers (this button, the guitar, spacebar) caused
+// the change.
+function setCascadeActive(active) {
+  cascadeActive = active;
+  document.body.classList.toggle('cascade-active', active);
+  const button = document.getElementById('cascade-toggle');
+  if (button) {
+    button.classList.toggle('playing', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.title = active ? 'Stop the signal-path animation' : 'Play the signal-path animation';
+  }
+}
 let TRACEABLE_NODE_ID = null; // set once in renderNodeBox -- see its own comment on why there's exactly one
 const activeAnimations = new Set();
 let stopSignal = { promise: null, resolve: null };
@@ -2030,8 +2076,7 @@ function hideStartPreview() {
 
 async function startCascade() {
   if (cascadeActive || !TRACEABLE_NODE_ID) return;
-  cascadeActive = true;
-  document.body.classList.add('cascade-active'); // marches every power connector's dashes for the cascade's whole duration -- see style.css
+  setCascadeActive(true);
   resetStopSignal();
   showStartPreview();
   await playBeginning(); // gates the whole cascade -- see playBeginning
@@ -2047,8 +2092,7 @@ async function startCascade() {
   // leading back to the guitar (were one ever wired up) can't retrigger it.
   await propagateFrom(TRACEABLE_NODE_ID, new Set([TRACEABLE_NODE_ID]));
   if (!cascadeActive) return; // aborted mid-flight -- stopCascade() already handled the chomp stop + its own death cue
-  cascadeActive = false;
-  document.body.classList.remove('cascade-active');
+  setCascadeActive(false);
   chompGeneration++;
   stopChompSource();
   playIntermission(); // only reached when traceFrom ran the whole path to its own natural end, not when stopCascade cut it short
@@ -2060,8 +2104,7 @@ async function startCascade() {
 // nothing should visibly wait on that: this makes the stop read as instant.
 function stopCascade() {
   if (!cascadeActive) return;
-  cascadeActive = false;
-  document.body.classList.remove('cascade-active');
+  setCascadeActive(false);
   stopSignal.resolve();
   for (const anim of activeAnimations) anim.cancel();
   activeAnimations.clear();
@@ -2454,5 +2497,56 @@ async function main() {
     toggleCascade();
   });
 }
+
+// Wires up the header's light/dark toggle (see index.html) -- independent
+// of main()'s own async config/routing work below, and doesn't need to
+// wait on it, since the checkbox is static markup already in the DOM by
+// the time this script runs.
+//
+// "Resolved theme" is whichever of light/dark is actually painted right
+// now: an explicit stored choice (already applied to <html> by the
+// anti-flash inline script in index.html's <head>, before this file even
+// loads) if there is one, otherwise whatever prefers-color-scheme says.
+// The checkbox's own initial :checked state is set to match that, rather
+// than hardcoded in the markup, so it never opens already disagreeing
+// with what's on screen.
+function resolvedThemeIsDark() {
+  const explicit = document.documentElement.dataset.theme;
+  if (explicit) return explicit === 'dark';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function initTheme() {
+  const toggle = document.getElementById('theme-toggle');
+  if (!toggle) return;
+  toggle.checked = resolvedThemeIsDark();
+  toggle.addEventListener('change', () => {
+    const theme = toggle.checked ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('theme', theme); } catch {}
+  });
+  // Keeps the checkbox (and thus the icon) honest if the OS theme changes
+  // while this page has no explicit choice of its own stored yet -- once
+  // one is stored, dataset.theme is always set and resolvedThemeIsDark
+  // stops consulting this media query at all, so a system change no
+  // longer has anything to do here.
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (!document.documentElement.dataset.theme) toggle.checked = resolvedThemeIsDark();
+  });
+}
+initTheme();
+
+// The header's third control (see index.html) -- a plain button, not a
+// checkbox like the other two, since it doesn't hold a setting of its
+// own: it just calls the same toggleCascade() the spacebar and the
+// guitar's own click already do (see main()'s keydown listener and
+// renderNodeBox), and setCascadeActive keeps its look in sync with
+// cascadeActive regardless of which of those three actually changed it.
+function initCascadeToggle() {
+  const button = document.getElementById('cascade-toggle');
+  if (!button) return;
+  button.addEventListener('click', () => toggleCascade());
+}
+initCascadeToggle();
 
 main();

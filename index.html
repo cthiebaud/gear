@@ -11,24 +11,79 @@
        they're fetched at runtime with cache:'no-cache' instead (see
        app.js's main()), so editing either never requires remembering to
        bump anything here. -->
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=7" />
+  <script>
+    // Sets the theme attribute style.css's :root[data-theme] rules key
+    // off (see app.js's initTheme for the rest of the toggle) before the
+    // stylesheet ever paints anything -- run any later, e.g. from
+    // app.js's own script tag at the end of body, and a visitor who
+    // picked "dark" would see one frame of the light theme flash by on
+    // every load first. No stored choice yet means no attribute at all,
+    // same as before this toggle existed -- prefers-color-scheme alone
+    // still decides.
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+    } catch {}
+  </script>
 </head>
 <body>
   <header>
     <h1>My Gear</h1>
-    <!-- Pure CSS: the checkbox's :checked state is read by style.css via
-         body:has(#power-connectors-toggle:not(:checked)) to hide the power
-         wires/bolt markers, and by the sibling combinator below to swap the
-         icon for its struck-through state. app.js's routing never sees this
-         -- it always lays out power connectors as present; this only ever
-         toggles their painted visibility. -->
-    <label class="power-toggle" title="Show/hide power-supply connectors">
-      <input type="checkbox" id="power-connectors-toggle" checked hidden />
-      <svg viewBox="0 0 46.093 46.093" width="22" height="22">
-        <path d="M34.137 20.862c-.475-.761-1.307-1.232-2.204-1.232h-6.356l6.707-16.032c.335-.802.248-1.717-.234-2.44C31.567.435 30.757 0 29.888 0h-8.444c-1.15 0-2.163.761-2.49 1.863l-7.283 24.565c-.233.786-.082 1.627.409 2.284.49.657 1.261 1.035 2.081 1.035h6.807l-1.189 14.106c-.083.987.548 1.898 1.503 2.164.955.264 1.962-.187 2.399-1.076l10.582-21.56c.396-.803.347-1.758-.126-2.519" />
-        <line class="power-toggle-slash" x1="3" y1="3" x2="43" y2="43" />
-      </svg>
-    </label>
+    <!-- Grouped so header's own flex row (see style.css) only ever has
+         two items to place -- the title and this whole cluster -- rather
+         than needing to push each control right individually. -->
+    <div class="header-controls">
+      <!-- Pure CSS: the checkbox's :checked state is read by style.css via
+           body:has(#power-connectors-toggle:not(:checked)) to hide the power
+           wires/bolt markers, and by the sibling combinator below to swap the
+           icon for its struck-through state. app.js's routing never sees this
+           -- it always lays out power connectors as present; this only ever
+           toggles their painted visibility. -->
+      <label class="power-toggle" title="Show/hide power-supply connectors">
+        <input type="checkbox" id="power-connectors-toggle" checked hidden />
+        <svg viewBox="0 0 46.093 46.093" width="27" height="27">
+          <path d="M34.137 20.862c-.475-.761-1.307-1.232-2.204-1.232h-6.356l6.707-16.032c.335-.802.248-1.717-.234-2.44C31.567.435 30.757 0 29.888 0h-8.444c-1.15 0-2.163.761-2.49 1.863l-7.283 24.565c-.233.786-.082 1.627.409 2.284.49.657 1.261 1.035 2.081 1.035h6.807l-1.189 14.106c-.083.987.548 1.898 1.503 2.164.955.264 1.962-.187 2.399-1.076l10.582-21.56c.396-.803.347-1.758-.126-2.519" />
+          <line class="power-toggle-slash" x1="3" y1="3" x2="43" y2="43" />
+        </svg>
+      </label>
+      <!-- :checked here means "dark" -- app.js's initTheme sets this once
+           on load to whatever theme actually resolved (an explicit stored
+           choice, or prefers-color-scheme if there isn't one yet) and
+           toggles both the checkbox and :root[data-theme] together from
+           then on, so this always matches what's actually painted. -->
+      <label class="theme-toggle" title="Toggle light/dark theme">
+        <input type="checkbox" id="theme-toggle" hidden />
+        <svg viewBox="0 0 24 24" width="25" height="25">
+          <g class="theme-toggle-sun">
+            <circle cx="12" cy="12" r="4.5" />
+            <line x1="12" y1="1" x2="12" y2="3.5" />
+            <line x1="12" y1="20.5" x2="12" y2="23" />
+            <line x1="1" y1="12" x2="3.5" y2="12" />
+            <line x1="20.5" y1="12" x2="23" y2="12" />
+            <line x1="4.4" y1="4.4" x2="6.1" y2="6.1" />
+            <line x1="17.9" y1="17.9" x2="19.6" y2="19.6" />
+            <line x1="4.4" y1="19.6" x2="6.1" y2="17.9" />
+            <line x1="17.9" y1="6.1" x2="19.6" y2="4.4" />
+          </g>
+          <path class="theme-toggle-moon" d="M20.742 15.723A8.5 8.5 0 1 1 9.777 4.223 6.5 6.5 0 0 0 20.742 15.723Z" />
+        </svg>
+      </label>
+      <!-- A real <button>, not another checkbox like the two labels above
+           -- this doesn't hold a setting of its own, it just fires the
+           same toggleCascade() the spacebar and the guitar's own click
+           already do (see app.js's initCascadeToggle and main()'s keydown
+           listener), and its look is kept in sync with cascadeActive by
+           setCascadeActive regardless of which of those three actually
+           changed it. aria-pressed (kept current the same way) is what a
+           screen reader announces here instead of the icon swap. -->
+      <button type="button" class="cascade-toggle" id="cascade-toggle" title="Play the signal-path animation" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="25" height="25">
+          <path class="cascade-toggle-play" d="M7 4.5 19.5 12 7 19.5Z" />
+          <rect class="cascade-toggle-stop" x="5.5" y="5.5" width="13" height="13" rx="2" />
+        </svg>
+      </button>
+    </div>
   </header>
   <main id="app">
     <!-- Static markup, not JS-built like everything else in #app -- shows
@@ -46,6 +101,6 @@
     </div>
   </main>
   <script src="libs/dotparser/dotparser.min.js"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

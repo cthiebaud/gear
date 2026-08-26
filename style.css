@@ -21,8 +21,15 @@
   --pacman-stroke: rgba(136, 124, 17, 0.461);
 }
 
+/* :not([data-theme="light"]) is what lets the header's theme-toggle (see
+   index.html/app.js) override the system preference: an explicit "light"
+   choice has to win here even on a system set to dark, but with no
+   explicit choice at all this still just follows prefers-color-scheme,
+   same as before the toggle existed. An explicit "dark" choice doesn't
+   need a matching guard here -- the block below applies it unconditionally,
+   system preference or not. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #52524b;
     --card-bg: #747468;
     --border: #3c3c36;
@@ -39,6 +46,30 @@
     --pacman: #ffd400;
     --pacman-stroke: rgba(0, 0, 0, 0.6);
   }
+}
+
+/* Same palette as above, forced on regardless of system preference --
+   reached only once the visitor has actually clicked the theme-toggle to
+   "dark" (see app.js), which is also the only time this attribute is
+   ever set to "dark" at all. Necessarily a duplicate of the block above
+   rather than something shared, since a plain CSS class/attribute
+   selector can't itself reach inside a @media block's own rule. */
+:root[data-theme="dark"] {
+  --bg: #52524b;
+  --card-bg: #747468;
+  --border: #3c3c36;
+  --text: #ece9e1;
+  --muted: #c4bfb1;
+  --accent: #b5442e;
+  --wire: #0d0d0d;
+  --wire-loop: #343333;
+  --wire-power: #7a8a67;
+  --wire-exp: #5f73c2;
+  --wire-arrow-out: #6b9b56;
+  --wire-arrow-in: #ca4e3e;
+  --board-bg: rgba(163, 151, 151, 0.41);
+  --pacman: #ffd400;
+  --pacman-stroke: rgba(0, 0, 0, 0.6);
 }
 
 * { box-sizing: border-box; }
@@ -71,9 +102,30 @@ body {
   flex-direction: column;
 }
 
+/* A row so the three controls (grouped in .header-controls, see
+   index.html) sit beside "My Gear" instead of wrapping under it --
+   justify-content:space-between pushes that whole group flush right
+   without needing a margin-left:auto on it specifically. The bottom
+   spacing that used to live on h1's own margin and each control's own
+   margin (both now zeroed below) moves here instead, so it applies once
+   to the row as a whole regardless of which item ends up tallest. */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
 header h1 {
-  margin: 0 0 0.25rem;
+  margin: 0;
   font-size: 1.6rem;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* The checkbox (hidden, see index.html) only exists to hold :checked
@@ -81,7 +133,6 @@ header h1 {
    struck-through by the sibling rules below -- is the only thing shown. */
 .power-toggle {
   display: inline-flex;
-  margin: 0 0 0.5rem;
   cursor: pointer;
 }
 
@@ -94,6 +145,84 @@ header h1 {
   stroke: var(--accent);
   stroke-width: 4;
   stroke-linecap: round;
+}
+
+/* Same hidden-checkbox-drives-a-sibling-<svg> shape as .power-toggle
+   above, sun/moon rather than plain/struck-through -- the standard way a
+   light/dark switch reads at a glance almost everywhere it shows up.
+   currentColor (rather than a --wire-* token, which wouldn't mean
+   anything here) is what lets both icons track the header's own text
+   color across themes for free. Unlike .power-toggle, this checkbox's
+   initial :checked state isn't set in the markup -- app.js sets it once,
+   on load, to whatever theme actually resolved (stored choice, or
+   prefers-color-scheme if there isn't one yet -- see initTheme). */
+.theme-toggle {
+  display: inline-flex;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.theme-toggle svg circle,
+.theme-toggle svg path {
+  fill: currentColor;
+}
+
+.theme-toggle svg line {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.theme-toggle-moon {
+  display: none;
+}
+
+.theme-toggle input:checked ~ svg .theme-toggle-sun {
+  display: none;
+}
+
+.theme-toggle input:checked ~ svg .theme-toggle-moon {
+  display: block;
+}
+
+/* A real <button>, not a hidden-checkbox label like the two above -- see
+   its own comment in index.html for why. The reset (no border/background/
+   padding/font-inherit-fighting) is what makes a <button> read as a plain
+   icon control rather than a form button; currentColor + var(--muted)
+   keeps it visually consistent with .theme-toggle right next to it. */
+.cascade-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.cascade-toggle svg path,
+.cascade-toggle svg rect {
+  fill: currentColor;
+}
+
+.cascade-toggle-stop {
+  display: none;
+}
+
+/* .playing is toggled by setCascadeActive (app.js), not a CSS-only
+   :checked the way the other two header controls are -- this state can
+   change from three different places (this button, spacebar, the
+   guitar's own click, see toggleCascade), not just a click on this
+   control itself, so app.js has to be the one keeping it current
+   regardless of which of those actually fired. */
+.cascade-toggle.playing .cascade-toggle-play {
+  display: none;
+}
+
+.cascade-toggle.playing .cascade-toggle-stop {
+  display: block;
 }
 
 .power-toggle input:not(:checked) ~ svg {
