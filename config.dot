@@ -9,7 +9,9 @@ digraph pedalboard {
 
   telecaster [shape=record, owner="Fender", place="free",
       label="Limited Edition Made In Japan Super Deluxe Thinline Telecaster|<out> out"];
-
+  dvp5 [shape=record, owner="Dunlop", place="free", url="https://www.jimdunlop.com/volume-x-8-pedal/",
+        label="DVP5 Volume (X) 8 Pedal|<exp> exp"];
+  
   strobostomp_hd [shape=record, owner="Peterson", url="https://www.petersontuners.com/products/stroboStompHD/",
         label="<in> in|StroboStomp HD|<out> out|<power> pwr"];
   ua1176 [shape=record, owner="Universal Audio", url="https://www.uaudio.com/products/1176-studio-compressor-pedal",
@@ -29,18 +31,12 @@ digraph pedalboard {
   bluesky [shape=record, owner="Strymon", url="https://www.strymon.net/product/bluesky/",
         label="<in> in|BlueSky|<out> out|<power> pwr"];
 
-  dvp5 [shape=record, owner="Dunlop", place="free", url="https://www.jimdunlop.com/volume-x-8-pedal/",
-        label="DVP5 Volume (X) 8 Pedal|<exp> exp"];
-  
   // simplifier_x [shape=record, owner="DSM & Humboldt", place="free", url="https://www.dsmhumboldt.com/simplifier-x", 
   //       label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
-
-  ironball [shape=record, owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
-        label="<in> in|E606 Ironball SE X|<out> out|<loopOut> send|<loopIn> return"];
-
   twin_reverb [shape=record, owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
         label="<in> in|1974 Twin Reverb"];
-
+  ironball [shape=record, owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
+        label="<in> in|E606 Ironball SE X|<out> out|<loopOut> send|<loopIn> return"];
   pedal_power [shape=record, owner="Voodoo Lab", place="free", url="https://voodoolab.com/product/pedal-power-4x4/",
         label="Pedal Power 4x4|<hc12_1> hc12_1|<hc12_2> hc12_2|<hc9_1> hc9_1|<hc9_2> hc9_2|<hc9_3> hc9_3|<hc9_4> hc9_4|<iso1> iso1|<iso2> iso2|<iso3> iso3|<iso4> iso4"];
 
@@ -50,30 +46,16 @@ digraph pedalboard {
   strobostomp_hd:out -> ua1176:in;
   ua1176:out -> centavo:in;
   centavo:out -> tim_v3:in;
-
-  // Brig is inserted in Tim's Boost/FX loop.
   tim_v3:loopOut -> brig:in [kind="loop-out"];
   brig:out -> tim_v3:loopIn [kind="loop-in"];
-
   tim_v3:out -> psplit:in;
-
-  electric_blue_chorus:out -> capistan:in;
-  dvp5:exp -> capistan:exp [kind=exp];
-  capistan:out -> bluesky:in;
-
-  // psplit:outIso -> simplifier_x:in [kind=fork];
-  // simplifier_x:loopOut -> electric_blue_chorus:in [kind="loop-out"];
-  // bluesky:out -> simplifier_x:loopIn [kind="loop-in"];
-
+  psplit:outDir -> twin_reverb:in [kind=fork];
   psplit:outIso -> ironball:in [kind=fork];
   ironball:loopOut -> electric_blue_chorus:in [kind="loop-out"];
+  electric_blue_chorus:out -> capistan:in;
+  capistan:exp -> dvp5:exp [kind=exp];
+  capistan:out -> bluesky:in;
   bluesky:out -> ironball:loopIn [kind="loop-in"];
-
-  // P-Split's DIR output feeds the twin reverb, permanently, in
-  // parallel with the ISO output above.
-  psplit:outDir -> twin_reverb:in [kind=fork];
-
-  // ironball:out -> compact60:in;
 
   // --- power ---------------------------------------------------------
   //

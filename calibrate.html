@@ -151,16 +151,16 @@ function updateStatus(status, item) {
 }
 
 function updateOutput() {
-  const lines = [];
+  const blocks = [];
   for (const item of ITEMS) {
     const rec = results[item.key];
     if (!rec) continue;
     const parts = item.points
       .filter(p => rec[p])
-      .map(p => `${p}: { x: ${rec[p].x}, y: ${rec[p].y} }`);
-    if (parts.length) lines.push(`${item.key} (${item.label}):\n  ` + parts.join('\n  '));
+      .map(p => `    "${p}": { "x": ${rec[p].x}, "y": ${rec[p].y} }`);
+    if (parts.length) blocks.push(`  "${item.key}": {\n` + parts.join(',\n') + '\n  },');
   }
-  document.getElementById('output').value = lines.join('\n\n');
+  document.getElementById('output').value = blocks.join('\n');
 }
 
 render();

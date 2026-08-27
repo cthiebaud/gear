@@ -1744,22 +1744,57 @@ let TRACE_EDGES = new Map();
 //    once the last of them has landed, not restart a second overlapping
 //    copy per connector.
 //  - eatfruit: a one-shot *event* ("a signal just landed on an LED"). An
-//    FX loop can land on two LEDs close together (see traceFrom), and
-//    layering two copies of the same one-shot is exactly the "annoying"
-//    the user flagged -- so a trigger while one's already playing just
-//    rides along silently instead of stacking another copy.
+//    FX loop can land on two LEDs close together (see traceFrom), or two
+//    free nodes a second or so apart -- rather than muting the later
+//    trigger while an earlier one's still playing, it gets its own
+//    overlapping instance (see playEatFruit's cloneNode) so both are
+//    actually heard, layered, instead of the second one going silent.
 //  - eatghost: the same one-shot-event shape as eatfruit, but for the
 //    signal reaching a place="free" node (amp, PSU, ...) instead of a
 //    pedal's own LED -- those have no LED to land on and so no eatfruit
 //    clip of their own (see blinkLed), but arrival there should still
-//    announce itself. One shared clip for every such node, same
-//    already-playing mutex as eatfruit, just not keyed per node since
-//    there's only the one clip.
+//    announce itself. One shared clip for every such node (not keyed per
+//    node the way eatfruit is, since there's only the one clip), same
+//    overlapping-instance behavior as eatfruit otherwise.
+// Every eatfruit/eatghost instance currently playing (see playEatFruit/
+// playEatGhost's own cloneNode) -- not just the cached originals, since an
+// overlapping trigger spawns its own untracked clone that nothing else
+// holds a reference to. Exists so TRACK_MODE (see exportTracking) can tell
+// when it's actually safe to trigger the monster-track-*.json download:
+// doing that mid-sound would surface a save/download popup right in the
+// middle of a screen recording. Event-driven, not polled: oneShotIdleWaiters
+// holds whatever's currently awaiting whenOneShotsIdle() (a plain array, not
+// just one slot -- a second cascade could in principle start, and want its
+// own wait, before an earlier one's trailing sound has finished), and gets
+// notified the instant the set actually drains to zero.
+const playingOneShots = new Set();
+const oneShotIdleWaiters = [];
+function trackOneShot(instance) {
+  playingOneShots.add(instance);
+  instance.addEventListener('ended', () => {
+    playingOneShots.delete(instance);
+    if (playingOneShots.size === 0) {
+      oneShotIdleWaiters.splice(0).forEach(resolve => resolve());
+    }
+  }, { once: true });
+}
+function whenOneShotsIdle() {
+  if (playingOneShots.size === 0) return Promise.resolve();
+  return new Promise(resolve => oneShotIdleWaiters.push(resolve));
+}
+
 const SOUND_BEGINNING = new Audio('/sounds/pacman_beginning.mp3');
 const SOUND_DEATH = new Audio('/sounds/pacman_death.mp3');
+// Same shape as playBeginning below: resolves once the cue has actually
+// finished playing (or immediately, if the browser refused to play it at
+// all) -- TRACK_MODE chains its export off this instead of polling
+// .paused, same reasoning as whenOneShotsIdle above.
 function playDeath() {
-  SOUND_DEATH.currentTime = 0;
-  SOUND_DEATH.play().catch(() => {});
+  return new Promise(resolve => {
+    SOUND_DEATH.currentTime = 0;
+    SOUND_DEATH.addEventListener('ended', resolve, { once: true });
+    SOUND_DEATH.play().catch(resolve);
+  });
 }
 // The cascade's own natural finish (traceFrom running the whole signal
 // path to its end, see startCascade) gets the arcade's between-levels
@@ -1770,15 +1805,25 @@ function playDeath() {
 // dying.
 const SOUND_INTERMISSION = new Audio('/sounds/pacman_intermission.mp3');
 function playIntermission() {
-  SOUND_INTERMISSION.currentTime = 0;
-  SOUND_INTERMISSION.play().catch(() => {});
+  return new Promise(resolve => {
+    SOUND_INTERMISSION.currentTime = 0;
+    SOUND_INTERMISSION.addEventListener('ended', resolve, { once: true });
+    SOUND_INTERMISSION.play().catch(resolve);
+  });
 }
 const DEFAULT_EATFRUIT_URL = '/sounds/pacman_eatfruit.mp3';
 const SOUND_EATGHOST = new Audio('/sounds/pacman_eatghost.mp3');
+// cloneNode() rather than reusing SOUND_EATGHOST directly when it's still
+// playing -- two free nodes reached close together (e.g. the Fender and
+// the Engl a second apart) should both be heard, overlapping, not have
+// the second one silently dropped for landing mid-clip of the first.
+// Only clones when actually needed: the common case (nothing else
+// playing) still reuses the one cached element.
 function playEatGhost() {
-  if (!SOUND_EATGHOST.paused) return;
-  SOUND_EATGHOST.currentTime = 0;
-  SOUND_EATGHOST.play().catch(() => {});
+  const instance = SOUND_EATGHOST.paused ? SOUND_EATGHOST : SOUND_EATGHOST.cloneNode();
+  instance.currentTime = 0;
+  instance.play().catch(() => {});
+  trackOneShot(instance);
 }
 
 // Gates the very start of a trace cascade (see the telecaster's click
@@ -1946,17 +1991,19 @@ function eatFruitAudioFor(nodeId) {
   return audio;
 }
 
-// One-shot mutex *per clip*, not globally: two pedals landing close
-// together (an FX loop, see traceFrom) now likely have two genuinely
-// different flavors, which is the whole point -- only a literal repeat
-// of the exact same clip (two pedals sharing the default, or the same
-// pedal re-entering somehow) gets muted here, same reasoning as before,
-// just scoped down to "this clip" instead of "any eatfruit".
+// cloneNode() rather than reusing the cached element directly when it's
+// still playing -- two pedals landing close together (an FX loop, see
+// traceFrom, or just two arrivals a second or so apart) should both be
+// heard, overlapping, rather than the later one going silent for landing
+// mid-clip of the earlier. Only clones when actually needed: the common
+// case (this clip not already playing) still reuses the cached element,
+// so repeat triggers don't pile up new Audio objects for no reason.
 function playEatFruit(nodeId) {
   const audio = eatFruitAudioFor(nodeId);
-  if (!audio.paused) return;
-  audio.currentTime = 0;
-  audio.play().catch(() => {});
+  const instance = audio.paused ? audio : audio.cloneNode();
+  instance.currentTime = 0;
+  instance.play().catch(() => {});
+  trackOneShot(instance);
 }
 
 // The one arrival cue for any node the cascade reaches, regardless of
@@ -2020,6 +2067,101 @@ function stopLedBlink(nodeId) {
 // Animation -- an Animation's own .finished promise settles the moment
 // .cancel() is called, but a plain timer needs its own race to interrupt.
 let cascadeActive = false;
+
+// index.html?track=1 -- a recording aid (like ?config=NAME), not a
+// visitor-facing feature: records the monster's own position throughout
+// one cascade run and exports it as a JSON timeline, for cropping a
+// vertical Reel out of a separately-recorded wide capture in post (see
+// scripts/crop_to_reel.py). This replaces an earlier live in-browser
+// panning camera that turned out fundamentally broken -- it panned
+// .board-canvas directly via CSS transform, but .connector-overlay (every
+// wire/arrow/monster) is a *sibling* of .board-canvas, not a child, so the
+// two desynced the instant the camera moved. Recording this data instead
+// of acting on it live sidesteps that whole problem: nothing on screen
+// ever moves because of this.
+const TRACK_MODE = new URLSearchParams(location.search).has('track');
+let trackedPositions = [];
+let trackStartTime = 0;
+let trackLast = null;
+let trackRafId = null;
+
+// The point being tracked, in viewport coordinates, or null if nothing's
+// currently traveling -- activeAnimations (the existing Set from
+// fireTraceEdge) going empty does NOT mean the cascade is idle: it also
+// happens for the ~800ms LED-flicker window at *every* plain pedal (see
+// blinkLed/LED_BLINK_DURATION_MS), in the gap between one edge finishing
+// and the next one firing. trackFrame below holds the last real position
+// through those gaps rather than substituting a fixed point (e.g. the
+// guitar) -- falling back to a fixed point would ping-pong the recorded
+// position at every single hop in the chain, not just at the real start
+// and end.
+function sampleTrackTarget() {
+  const rects = [...activeAnimations].map(anim => anim.effect.target.getBoundingClientRect());
+  if (!rects.length) return null;
+  const x = rects.reduce((sum, r) => sum + r.left + r.width / 2, 0) / rects.length;
+  const y = rects.reduce((sum, r) => sum + r.top + r.height / 2, 0) / rects.length;
+  return { x, y };
+}
+
+// Fractions (0-1) of #app's own box, not raw pixels -- keeps the export
+// independent of whatever window size/DPI the recording actually happens
+// at. Requires the recording itself to capture #app's content only (no
+// browser chrome/DevTools panel around it), or the fractions won't line
+// up with the video frame in scripts/crop_to_reel.py.
+function toAppFraction(point) {
+  const appRect = document.getElementById('app').getBoundingClientRect();
+  return { x: (point.x - appRect.left) / appRect.width, y: (point.y - appRect.top) / appRect.height };
+}
+
+function trackFrame() {
+  const target = sampleTrackTarget();
+  if (target) trackLast = target;
+  const { x, y } = toAppFraction(trackLast);
+  trackedPositions.push({ t: performance.now() - trackStartTime, x, y });
+  trackRafId = requestAnimationFrame(trackFrame);
+}
+
+// trackLast starts at the guitar's own position -- the same spot
+// showStartPreview poses its stationary monster at during the opening
+// jingle, which is exactly the window before any real edge has fired yet
+// (see the gap comment above).
+function startTracking() {
+  const guitarImg = NODES_BY_ID.get(TRACEABLE_NODE_ID)?.el;
+  if (!guitarImg) return;
+  const r = guitarImg.getBoundingClientRect();
+  trackLast = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  trackedPositions = [];
+  trackStartTime = performance.now();
+  trackRafId = requestAnimationFrame(trackFrame);
+}
+
+// Just the rAF loop -- called from setCascadeActive(false), immediately,
+// same as every other piece of cascade-end bookkeeping there. The actual
+// export is deliberately NOT triggered from here: see exportTracking's
+// own comment for why it has to wait for startCascade/stopCascade's own
+// final sound instead.
+function stopTracking() {
+  if (trackRafId != null) cancelAnimationFrame(trackRafId);
+  trackRafId = null;
+}
+
+// Triggers the monster-track-*.json download -- callers (startCascade/
+// stopCascade) are the ones responsible for not calling this until it's
+// actually safe to: downloading mid-sound pops a save/download
+// notification right in the middle of a screen recording, audibly and
+// visibly interrupting it. They chain this off their own ending cue's
+// promise (playIntermission()/playDeath()) and whenOneShotsIdle()
+// together, rather than this function polling anything itself.
+function exportTracking(positions) {
+  const blob = new Blob([JSON.stringify(positions)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `monster-track-${Date.now()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Single write site for cascadeActive -- every place that used to assign
 // it directly goes through this instead, so the header's play/stop
 // button (see index.html) and the power-wire march (see style.css) can
@@ -2034,6 +2176,10 @@ function setCascadeActive(active) {
     button.classList.toggle('playing', active);
     button.setAttribute('aria-pressed', String(active));
     button.title = active ? 'Stop the signal-path animation' : 'Play the signal-path animation';
+  }
+  if (TRACK_MODE) {
+    if (active) startTracking();
+    else stopTracking(); // export is triggered separately, by startCascade/stopCascade themselves -- see exportTracking's own comment
   }
 }
 let TRACEABLE_NODE_ID = null; // set once in renderNodeBox -- see its own comment on why there's exactly one
@@ -2095,7 +2241,17 @@ async function startCascade() {
   setCascadeActive(false);
   chompGeneration++;
   stopChompSource();
-  playIntermission(); // only reached when traceFrom ran the whole path to its own natural end, not when stopCascade cut it short
+  // only reached when traceFrom ran the whole path to its own natural
+  // end, not when stopCascade cut it short. TRACK_MODE's export chains
+  // off this cue's own promise, then whenOneShotsIdle -- not called until
+  // both the jingle and any still-finishing eatfruit/eatghost tail are
+  // done; positions is snapshotted now, synchronously, since trackedPositions
+  // itself could be reassigned by a new cascade before this chain resolves.
+  const introFinished = playIntermission();
+  if (TRACK_MODE) {
+    const positions = trackedPositions;
+    introFinished.then(whenOneShotsIdle).then(() => exportTracking(positions));
+  }
 }
 
 // Resets every moving/sounding piece back to its idle state, synchronously
@@ -2118,12 +2274,21 @@ function stopCascade() {
   fadeOutAndReset(SOUND_BEGINNING);
   chompGeneration++; // invalidates any startChompLoop() still awaiting its buffer
   stopChompSource();
-  playDeath(); // a stop cut short by the user is what death means here -- the intermission jingle (see startCascade) is reserved for the cascade finishing on its own
+  // a stop cut short by the user is what death means here -- the
+  // intermission jingle (see startCascade) is reserved for the cascade
+  // finishing on its own
+  const deathFinished = playDeath();
   // Deliberately not touched here: an eatfruit one-shot already playing
   // (e.g. Brig's own long delay tail) is short enough to just let finish
   // on its own rather than cut off mid-clip -- even across a stop and
   // later restart, not just while this one stays "active". The LEDs above
-  // still reset visually right away; only the *sound* outlives it.
+  // still reset visually right away; only the *sound* outlives it -- and
+  // TRACK_MODE's export (below) waits out that tail too, same as it waits
+  // for death itself, rather than exporting mid-clip.
+  if (TRACK_MODE) {
+    const positions = trackedPositions;
+    deathFinished.then(whenOneShotsIdle).then(() => exportTracking(positions));
+  }
 }
 
 function toggleCascade() {

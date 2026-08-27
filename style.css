@@ -1,14 +1,13 @@
 :root {
   --bg: #f7f7f5;
-  --card-bg: #ffffff;
   --border: #d9d6cf;
   --text: #22221f;
   --muted: #79766d;
   --accent: #b5442e;
   --wire: #69665c;
   --wire-loop: #7c786c;
-  --wire-power: #95a57d;
-  --wire-exp: #335f8e;
+  --wire-power: #728880;
+  --wire-exp: #5f73c2;
   --wire-arrow-out: #4f7a3d;
   --wire-arrow-in: #b23a2a;
   --board-bg: rgba(0, 0, 0, 0.067);
@@ -18,7 +17,7 @@
      keeps the classic arcade shade below) plus a dark outline
      (--pacman-stroke) on the shape itself, see .connector-bulge/-trace. */
   --pacman: #e0bb00;
-  --pacman-stroke: rgba(136, 124, 17, 0.461);
+  --pacman-stroke: #a88c00;
 }
 
 /* :not([data-theme="light"]) is what lets the header's theme-toggle (see
@@ -30,21 +29,20 @@
    system preference or not. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #52524b;
-    --card-bg: #747468;
-    --border: #3c3c36;
+    --bg: #3B4044;
+    --border: #42484c;
     --text: #ece9e1;
     --muted: #c4bfb1;
     --accent: #b5442e;
     --wire: #0d0d0d;
-    --wire-loop: #343333;
-    --wire-power: #7a8a67;
-    --wire-exp: #5f73c2;
+    --wire-loop: #1a1a1a;
+    --wire-power: #728880;
+    --wire-exp: #5070c2;
     --wire-arrow-out: #6b9b56;
     --wire-arrow-in: #ca4e3e;
-    --board-bg: rgba(163, 151, 151, 0.41);
+    --board-bg: #545A5E;
     --pacman: #ffd400;
-    --pacman-stroke: rgba(0, 0, 0, 0.6);
+    --pacman-stroke: #a88c00;
   }
 }
 
@@ -55,21 +53,20 @@
    rather than something shared, since a plain CSS class/attribute
    selector can't itself reach inside a @media block's own rule. */
 :root[data-theme="dark"] {
-  --bg: #52524b;
-  --card-bg: #747468;
-  --border: #3c3c36;
+  --bg: #3B4044;
+  --border: #42484c;
   --text: #ece9e1;
   --muted: #c4bfb1;
   --accent: #b5442e;
   --wire: #0d0d0d;
-  --wire-loop: #343333;
-  --wire-power: #7a8a67;
-  --wire-exp: #5f73c2;
+  --wire-loop: #1a1a1a;
+  --wire-power: #728880;
+  --wire-exp: #5070c2;
   --wire-arrow-out: #6b9b56;
   --wire-arrow-in: #ca4e3e;
-  --board-bg: rgba(163, 151, 151, 0.41);
+  --board-bg: #545A5E;
   --pacman: #ffd400;
-  --pacman-stroke: rgba(0, 0, 0, 0.6);
+  --pacman-stroke: #a88c00;
 }
 
 * { box-sizing: border-box; }
@@ -118,6 +115,7 @@ header {
 }
 
 header h1 {
+  color: var(--muted);
   margin: 0;
   font-size: 1.6rem;
 }
@@ -137,7 +135,7 @@ header h1 {
 }
 
 .power-toggle svg {
-  fill: var(--wire-power);
+  fill: var(--muted);
 }
 
 .power-toggle-slash {
@@ -231,19 +229,6 @@ header h1 {
 
 .power-toggle input:not(:checked) ~ svg .power-toggle-slash {
   display: block;
-}
-
-.subtitle {
-  margin: 0 0 2rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.subtitle code {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.1em 0.4em;
 }
 
 /* Connector paths are drawn in coordinates relative to #app's own
@@ -592,12 +577,8 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   display: none;
 }
 
-/* White fill (var(--card-bg), so it still works in dark mode) rather than
-   a solid blue blob -- an outlined diamond stays legible where signal
-   arrowheads or other wires cross right behind it, which a filled shape
-   in the same color as the line it caps doesn't. */
 .connector-arrow-exp {
-  fill: var(--card-bg);
+  fill: var(--wire-exp);
   stroke: var(--wire-exp);
   stroke-width: 1.2;
 }
