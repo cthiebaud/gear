@@ -663,19 +663,22 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
 }
 
 /* The product-page link (see renderNodeBox) lives on the node-name label
-   now, not wrapping the image -- inheriting the label's own color/weight
-   keeps it reading as the pedal's name first and a link second, with
-   just enough of a dotted underline to still say "clickable". */
-.node-name a {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px dotted var(--muted);
+   itself now -- the whole label is the click target (role="link" +
+   click/keydown handlers, not a wrapped <a>) -- inheriting the label's
+   own color/weight keeps it reading as the pedal's name first and a link
+   second, with just enough of a dotted underline to still say
+   "clickable". */
+.node-name.linked {
+  cursor: pointer;
+  /* border-bottom: 1px dotted var(--muted); */
 }
 
-.node-name a:hover {
+/*
+.node-name.linked:hover {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+*/
 
 /* Shrink-wraps to the image's own rendered box -- same technique as
    calibrate.html's .imgwrap -- so .led-dot's x/y % below lands on the
@@ -782,6 +785,16 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   font-size: calc(0.78rem * var(--ui-scale));
   font-weight: 600;
   line-height: 1.2;
+}
+
+/* Nodes whose config.json spec has a dominantColor get it inline as this
+   label's background (see renderNodeBox/contrastingTextColor) -- padding
+   and rounding only kick in there, via the attribute selector, so plain
+   node-name labels elsewhere are untouched. */
+.node-name[style*="background-color"] {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  border-radius: calc(4px * var(--ui-scale));
 }
 
 .node-owner {

@@ -301,6 +301,22 @@ function el(tag, className, children) {
   return node;
 }
 
+// node-name background for any node whose config.json spec has no
+// dominantColor of its own (see renderNodeBox) -- RAL 7021 (Schwarzgrau).
+const DEFAULT_NODE_COLOR = '#23282B';
+
+// Picks black or white for text over `hexColor`, by standard YIQ perceived
+// brightness -- used to keep a pedal's own dominantColor (config.json)
+// readable as a node-name background regardless of how light or dark it is.
+function contrastingTextColor(hexColor) {
+  const hex = hexColor.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 140 ? '#000000' : '#ffffff';
+}
+
 // `baseWidthPx` is always a *scale=1* width (see the Board layout section
 // below) -- stashed on the element's dataset so applyScale() can rescale it
 // later without either side needing to recompute or re-look-up anything.
@@ -387,17 +403,25 @@ function renderNodeBox(node, baseWidthPx) {
   } else {
     box.classList.add('no-image');
   }
-  const nameText = document.createTextNode(node.name);
+  const nameDiv = el('div', 'node-name', [document.createTextNode(node.name)]);
   if (node.url) {
-    const link = el('a', null, [nameText]);
-    link.href = node.url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.title = `${node.name} — product page`;
-    box.append(el('div', 'node-name', [link]));
-  } else {
-    box.append(el('div', 'node-name', [nameText]));
+    nameDiv.classList.add('linked');
+    nameDiv.title = `${node.name} — product page`;
+    nameDiv.tabIndex = 0;
+    nameDiv.setAttribute('role', 'link');
+    const openProductPage = () => window.open(node.url, '_blank', 'noopener,noreferrer');
+    nameDiv.addEventListener('click', openProductPage);
+    nameDiv.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openProductPage();
+      }
+    });
   }
+  const bgColor = (node.spec && node.spec.dominantColor) || DEFAULT_NODE_COLOR;
+  nameDiv.style.backgroundColor = bgColor;
+  nameDiv.style.color = contrastingTextColor(bgColor);
+  box.append(nameDiv);
   if (node.owner) {
     box.append(el('div', 'node-owner', [document.createTextNode(node.owner)]));
   }

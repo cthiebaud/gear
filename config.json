@@ -1,11 +1,13 @@
 {
   "telecaster": {
     "file": "telecaster.png",
+    "dominantColor": "#06483a",
     "widthMm": 150,
-    "out": { "x": 0.94, "y": 0.94 }
+    "out": { "x": 0.95, "y": 0.95 }
   },
   "strobostomp_hd": {
     "file": "peterson-strobostomp-hd.png",
+    "dominantColor": "#494645",
     "widthMm": 66,
     "in": { "x": 0.993, "y": 0.554, "stub": 0.1  },
     "out": { "x": 0.012, "y": 0.554, "stub": 0.1  },
@@ -14,6 +16,7 @@
   },
   "ua1176": {
     "file": "ua-1176.png",
+    "dominantColor": "#98989a",
     "widthMm": 65,
     "in": { "x": 0.721, "y": 0 },
     "out": { "x": 0.319, "y": 0 },
@@ -23,6 +26,7 @@
   },
   "centavo": {
     "file": "warm-audio-centavo.png",
+    "dominantColor": "#997637",
     "widthMm": 170,
     "in": { "x": 0.657, "y": 0 },
     "out": { "x": 0.357, "y": 0 },
@@ -32,6 +36,7 @@
   },
   "tim_v3": {
     "file": "paul-c-tim-v3.png",
+    "dominantColor": "#0067b6",
     "widthMm": 117,
     "in": { "x": 0.843, "y": 0 },
     "out": { "x": 0.176, "y": 0 },
@@ -43,6 +48,7 @@
   },
   "brig": {
     "file": "strymon-brig.png",
+    "dominantColor": "#88856a",
     "widthMm": 68.6,
     "in": { "x": 0.845, "y": 0 },
     "out": { "x": 0.605, "y": 0 },
@@ -52,6 +58,7 @@
   },
   "electric_blue_chorus": {
     "file": "mad-professor-electric-blue.png",
+    "dominantColor": "#0477a8",
     "widthMm": 58,
     "in": { "x": 1, "y": 0.5, "stub": 0.1 },
     "out": { "x": 0, "y": 0.5, "stub": 0.1 },
@@ -61,6 +68,7 @@
   },
   "capistan": {
     "file": "strymon-elcap-v2.png",
+    "dominantColor": "#686765",
     "widthMm": 101.6,
     "in": { "x": 0.864, "y": 0 },
     "out": { "x": 0.679, "y": 0 },
@@ -71,6 +79,7 @@
   },
   "bluesky": {
     "file": "strymon-bluesky.png",
+    "dominantColor": "#6694a8",
     "widthMm": 101.6,
     "in": { "x": 0.852, "y": 0 },
     "out": { "x": 0.483, "y": 0 },
@@ -80,6 +89,7 @@
   },
   "psplit": {
     "file": "lehle-p-split-iii.png",
+    "dominantColor": "#e68554",
     "widthMm": 91.4,
         "in": { "x": 0.85, "y": 0 },
     "outDir": { "x": 0.629, "y": 0 },

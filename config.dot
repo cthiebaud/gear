@@ -19,7 +19,7 @@ digraph pedalboard {
   centavo [shape=record, owner="Warm Audio", url="https://warmaudio.com/centavo",
         label="<in> in|Centavo Gold|<out> out|<power> pwr"];
   tim_v3 [shape=record, owner="Paul Cochrane", url="https://www.humbuckermusic.com/products/paul-cochrane-tim-v3-overdrive-pedal",
-        label="<in> in|Tim V3|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
+        label="<in> in|Tim v3|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
   brig [shape=record, owner="Strymon", url="https://www.strymon.net/product/brig",
         label="<in> in|Brig|<out> out|<power> pwr"];
   psplit [shape=record, owner="Lehle", url="https://www.lehle.com/lehle-p-split-iii",
@@ -27,9 +27,9 @@ digraph pedalboard {
   electric_blue_chorus [shape=record, owner="Mad Professor", url="https://mpamp.com/product/23/electric-blue-chorus",
         label="<in> in|Electric Blue Chorus|<out> out|<power> pwr"];
   capistan [shape=record, owner="Strymon", url="https://www.strymon.net/product/elcapistan/",
-        label="<in> in|Capistan|<out> out|<power> pwr|<exp> exp"];
+        label="<in> in|El Capistan v2|<out> out|<power> pwr|<exp> exp"];
   bluesky [shape=record, owner="Strymon", url="https://www.strymon.net/product/bluesky/",
-        label="<in> in|BlueSky|<out> out|<power> pwr"];
+        label="<in> in|BlueSky v1|<out> out|<power> pwr"];
 
   // simplifier_x [shape=record, owner="DSM & Humboldt", place="free", url="https://www.dsmhumboldt.com/simplifier-x", 
   //       label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
