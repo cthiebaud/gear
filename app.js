@@ -2252,7 +2252,8 @@ function startLedBlink(nodeId) {
 }
 
 // Forces the LED fully off -- used to blank a node whose flicker got cut
-// short by a manual stop (see stopCascade/resetAllLeds), not by a natural
+// short by a manual stop (see stopCascade/cancelBlinkingLeds), or every
+// node at once for a fresh run (see resetAllLeds) -- not by a natural
 // arrival cue running to completion (see settleLedOn below for that case).
 function stopLedBlink(nodeId) {
   const node = NODES_BY_ID.get(nodeId);
@@ -2262,12 +2263,28 @@ function stopLedBlink(nodeId) {
 }
 
 // Every node's LED, forced off -- blanks the board back to its start-of-run
-// look. Used by stopCascade (a user-cut-short run resets to idle same as
-// it started) and by startCascade itself (so a repeat run's "everything
-// lights up along the way" progression is visible again, rather than
-// starting from last run's already-lit board).
+// look. Used only by startCascade, so a repeat run's "everything lights up
+// along the way" progression is visible again, rather than starting from
+// last run's already-lit board. NOT used by a manual stop (see
+// cancelBlinkingLeds below) -- a cut-short run should keep showing
+// whatever it actually got through, not erase that progress.
 function resetAllLeds() {
   for (const node of NODES_BY_ID.values()) stopLedBlink(node.id);
+}
+
+// A manual stop's version of the above: cancels only whatever's still
+// mid-flicker (the signal never actually finished arriving there, so
+// there's nothing to call "visited" yet -- same as if the cascade had
+// never reached it) and leaves every already-settled-on node exactly as
+// lit as it was. This sweep is what makes settleLedOn's own cascadeActive
+// guard correct: once stopCascade flips that flag, a still-in-flight
+// blinkLed/enterNode's later settleLedOn call becomes a no-op, so without
+// this running synchronously right here, a node caught mid-blink would be
+// left stuck showing 'blinking' forever instead of settling anywhere.
+function cancelBlinkingLeds() {
+  for (const node of NODES_BY_ID.values()) {
+    if (node.ledEl?.classList.contains('blinking')) stopLedBlink(node.id);
+  }
 }
 
 // A node's arrival flicker settling into a steady, permanently-lit state
@@ -2275,9 +2292,9 @@ function resetAllLeds() {
 // this is what "visited" looks like from here on, not "idle": the board
 // fills in as the cascade runs, and the fully-lit end state is deliberate
 // (see blinkLed/enterNode). Guarded by cascadeActive because a manual stop
-// mid-flicker races this: resetAllLeds() may already have turned this same
-// LED off by the time the awaited flicker/round-trip resolves, and that
-// off should win, not be undone back to lit.
+// mid-flicker races this: cancelBlinkingLeds() may already have turned
+// this same LED off by the time the awaited flicker/round-trip resolves,
+// and that off should win, not be undone back to lit.
 function settleLedOn(nodeId) {
   if (!cascadeActive) return;
   const node = NODES_BY_ID.get(nodeId);
@@ -2504,7 +2521,7 @@ function stopCascade() {
   stopSignal.resolve();
   for (const anim of activeAnimations) anim.cancel();
   activeAnimations.clear();
-  resetAllLeds();
+  cancelBlinkingLeds();
   document.querySelectorAll('.connector-trace').forEach(trace => { trace.style.opacity = 0; });
   // Also covers a stop mid-jingle: fadeOutAndReset below only pauses
   // SOUND_BEGINNING, which never fires the 'ended' event playBeginning()
