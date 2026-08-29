@@ -114,11 +114,11 @@
   "ironball": {
     "file": ["Engl-E606-off.png", "Engl-E606-on.png"],
     "widthMm": 200,
-    "in": { "x": 0.083, "y": 0.748 },
+    "in": { "x": 0.093, "y": 0.739 },
     "out": { "x": 0.212, "y": 0.9 },
-    "loopOut": { "x": 0.667, "y": 0.915 },
-    "loopIn": { "x": 0.333, "y": 0.925 },
-    "led": { "x": 0.826, "y": 0.748 }
+    "loopOut": { "x": 0.667, "y": 0.919 },
+    "loopIn": { "x": 0.333, "y": 0.923 },
+    "led": { "x": 0.819, "y": 0.734 }
   },
   "twin_reverb": {
     "file": "fender-twin-reverb-1974-cutout.png",

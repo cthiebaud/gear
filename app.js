@@ -212,6 +212,8 @@ function makeNode(id, attrs) {
     hasLedImages,
     ledOffSrc: hasLedImages ? image : null,
     ledOnSrc: hasLedImages ? '/images/' + spec.file[1] : null,
+    ledIsOn: false, // tracked explicitly rather than read off the dot's own classList -- a hasLedImages node deliberately never gets the dot's 'on' class (see settleLedOn/renderNodeBox), so there'd be nothing in the DOM to read it back from
+
     url: attrs.url || null, // product page to open when the image is clicked, if any
     el: null, // <img> element, filled in during render
   };
@@ -444,9 +446,15 @@ function renderNodeBox(node, baseWidthPx) {
       img.classList.add('led-toggle');
       img.title = `${node.name} — toggle LED`;
       imgWrap.addEventListener('click', () => {
-        const isOn = led.classList.toggle('on');
+        // hasLedImages: the dot's own 'on' class never gets set at all (see
+        // settleLedOn) -- the -on photo already shows it lit for real, so
+        // there's no DOM state to toggle() back off of; ledIsOn is this
+        // node's only record of which way it's currently switched.
+        const isOn = node.hasLedImages ? !node.ledIsOn : led.classList.toggle('on');
+        node.ledIsOn = isOn;
         setLedImage(node, isOn);
-        if (isOn) playEatFruit(node.id); // same cue as the cascade's own arrival (see blinkLed/playArrivalSound) -- only lighting it, not switching it back off, is "landing here"
+        if (isOn) playArrivalSound(node.id); // same cue the cascade's own arrival uses -- eatghost for a place="free" node (Engl, Fender, ...), eatfruit for a board pedal -- only lighting it, not switching it back off, is "landing here"
+        else playOffClick(node.id); // a manual off gets its own tiny cue instead of just going silent
       });
     } else if (!node.url) {
       // No product page and no LED to toggle -- free to repurpose the
@@ -1975,6 +1983,90 @@ function getAudioCtx() {
   return audioCtx;
 }
 
+// The manual LED toggle's off cue -- each toggleable node gets its own
+// randomly-assigned excerpt of sounds/16-button-press-sounds.mp3 (see
+// assignPressSounds, kicked off once from main()) instead of every node
+// sharing one identical clip, for a little variety across the board.
+// Falls back to the single press-button.mp3 sample below for a node with
+// no assigned excerpt (the wav is still loading, or PRESS_SOUND_COUNT ran
+// out -- see assignPressSounds). Not trackOneShot'd either way: unlike
+// eatfruit/eatghost this never fires as part of a cascade, so TRACK_MODE's
+// export (see whenOneShotsIdle) has no reason to wait on it.
+const SOUND_OFF_CLICK = new Audio('/sounds/press-button.mp3');
+function playOffClick(nodeId) {
+  const buffer = NODES_BY_ID.get(nodeId)?.pressSoundBuffer;
+  if (buffer) {
+    playBufferOnce(buffer);
+    return;
+  }
+  // Same cloneNode-if-still-playing shape as playEatGhost -- a rapid
+  // double-toggle should still be heard twice, overlapping, not have the
+  // second click silently dropped for landing mid-clip of the first.
+  const instance = SOUND_OFF_CLICK.paused ? SOUND_OFF_CLICK : SOUND_OFF_CLICK.cloneNode();
+  instance.currentTime = 0;
+  instance.play().catch(() => {});
+}
+
+// Fires a decoded buffer once via a fresh source node -- unlike the
+// HTMLAudioElement clips above, no cloneNode dance is needed for
+// overlapping re-triggers: every call gets its own AudioBufferSourceNode.
+async function playBufferOnce(buffer) {
+  const ctx = getAudioCtx();
+  if (ctx.state === 'suspended') await ctx.resume();
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.start();
+}
+
+// Copies one decoded AudioBuffer's `n` equal-length spans out into `n`
+// standalone AudioBuffers -- 16-button-press-sounds.wav (see
+// scripts/crop_evenly.py; .mp3 below is that same cropped file, just
+// transcoded down for a far smaller download) has already been cropped so
+// its N clips are exactly N equal slots back-to-back, meaning a plain
+// sample-count split lands each slice on its own clip with no per-clip
+// onset lookup needed.
+function sliceBufferIntoN(buffer, n) {
+  const ctx = getAudioCtx();
+  const slotLen = Math.floor(buffer.length / n);
+  const slices = [];
+  for (let i = 0; i < n; i++) {
+    const slice = ctx.createBuffer(buffer.numberOfChannels, slotLen, buffer.sampleRate);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      slice.copyToChannel(buffer.getChannelData(c).subarray(i * slotLen, (i + 1) * slotLen), c);
+    }
+    slices.push(slice);
+  }
+  return slices;
+}
+
+// Plain Fisher-Yates, in place.
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+// One randomly-assigned excerpt per toggleable node (every node with a
+// calibrated `led`, board or free alike -- same set renderNodeBox wires a
+// click handler onto), so no two pedals' manual-off click sounds the same
+// -- called once from main(), fire-and-forget: nothing needs to wait on
+// this, a node just falls back to the shared press-button.mp3 (see
+// playOffClick) for however long it takes to land. More eligible nodes
+// than clips would mean some nodes share one; there currently aren't.
+// See README.md's Credits section for where the source recording is from.
+const PRESS_SOUND_COUNT = 16;
+async function assignPressSounds(nodeList) {
+  const ctx = getAudioCtx();
+  const bytes = await fetch('/sounds/16-button-press-sounds.mp3').then(res => res.arrayBuffer());
+  const buffer = await ctx.decodeAudioData(bytes);
+  const slices = shuffle(sliceBufferIntoN(buffer, PRESS_SOUND_COUNT));
+  const eligible = nodeList.filter(n => n.spec && n.spec.led);
+  eligible.forEach((node, i) => { node.pressSoundBuffer = slices[i % slices.length]; });
+}
+
 // A hard stop/start on a raw AudioBufferSourceNode cuts the waveform at
 // whatever sample it happens to be sitting on -- almost never zero -- and
 // that instantaneous jump is exactly what a "click" *is* (a speaker being
@@ -2163,8 +2255,10 @@ function startLedBlink(nodeId) {
 // short by a manual stop (see stopCascade/resetAllLeds), not by a natural
 // arrival cue running to completion (see settleLedOn below for that case).
 function stopLedBlink(nodeId) {
-  ledElFor(nodeId)?.classList.remove('blinking', 'on');
-  setLedImage(NODES_BY_ID.get(nodeId), false);
+  const node = NODES_BY_ID.get(nodeId);
+  node?.ledEl?.classList.remove('blinking', 'on');
+  if (node) node.ledIsOn = false;
+  setLedImage(node, false);
 }
 
 // Every node's LED, forced off -- blanks the board back to its start-of-run
@@ -2186,10 +2280,18 @@ function resetAllLeds() {
 // off should win, not be undone back to lit.
 function settleLedOn(nodeId) {
   if (!cascadeActive) return;
-  const led = ledElFor(nodeId);
+  const node = NODES_BY_ID.get(nodeId);
+  const led = node?.ledEl;
   if (!led) return;
   led.classList.remove('blinking');
-  led.classList.add('on');
+  node.ledIsOn = true;
+  // A hasLedImages node's own -on photo already shows it lit for real --
+  // the synthetic dot glow this class draws would just double it up, so
+  // it's skipped for exactly the nodes where setLedImage below isn't a
+  // no-op (see ledIsOn's own comment, in makeNode, for why the toggle
+  // handler tracks state explicitly instead of reading this class back).
+  if (!node.hasLedImages) led.classList.add('on');
+  setLedImage(node, true);
 }
 
 // --- Cascade control (spacebar toggle) ------------------------------------
@@ -2692,6 +2794,7 @@ async function main() {
   const ast = window.dotParser.parse(text);
   const { nodeList, links, rowGroups } = buildModel(ast);
   NODES_BY_ID = new Map(nodeList.map(n => [n.id, n]));
+  assignPressSounds(nodeList); // fire-and-forget -- see its own comment
   await preloadImages(nodeList);
   measureLabelHeights(nodeList);
 
