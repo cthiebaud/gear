@@ -53,7 +53,7 @@
     "in": { "x": 0.845, "y": 0 },
     "out": { "x": 0.605, "y": 0 },
     "power": { "x": 0.167, "y": 0.029 },
-    "led": { "x": 0.5, "y": 0.145 },
+    "led": { "x": 0.505, "y": 0.145 },
     "eatfruit": "pacman_eatfruit-brig-edited.mp3"
   },
   "electric_blue_chorus": {
@@ -123,8 +123,8 @@
   "twin_reverb": {
     "file": "fender-twin-reverb-1974-cutout.png",
     "widthMm": 240,
-    "in": { "x": 0.381, "y": 0.089 },
-    "led": { "x": 0.91, "y": 0.099 }
+    "in": { "x": 0.368, "y": 0.076 },
+    "led": { "x": 0.927, "y": 0.0752 }  
   },
   "pedal_power": {
     "file": "voodoolab-4x4.png",

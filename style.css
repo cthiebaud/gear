@@ -724,7 +724,7 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   transform: translate(-50%, -50%);
   border-radius: 50%;
   cursor: pointer;
-  background: radial-gradient(circle, #fff6d0 0%, #ffb347 55%, transparent 75%);
+  background: radial-gradient(circle, #fff2ea 0%, #ff3324 55%, transparent 75%);
   mix-blend-mode: screen;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -732,7 +732,7 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
 
 .led-dot.on {
   opacity: 1;
-  box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 170, 60, 0.85);
+  box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 51, 36, 0.85);
 }
 
 /* Transient "signal just landed here" cue -- see blinkLed() in app.js.
@@ -750,7 +750,7 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
 
 .led-dot.blinking {
   animation: led-blink 160ms step-end infinite;
-  box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 170, 60, 0.85);
+  box-shadow: 0 0 calc(6px * var(--ui-scale)) calc(2px * var(--ui-scale)) rgba(255, 51, 36, 0.85);
 }
 
 /* The guitar, the one node with neither an LED nor a product url (see
