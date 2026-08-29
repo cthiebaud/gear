@@ -453,8 +453,15 @@ function renderNodeBox(node, baseWidthPx) {
         const isOn = node.hasLedImages ? !node.ledIsOn : led.classList.toggle('on');
         node.ledIsOn = isOn;
         setLedImage(node, isOn);
-        if (isOn) playArrivalSound(node.id); // same cue the cascade's own arrival uses -- eatghost for a place="free" node (Engl, Fender, ...), eatfruit for a board pedal -- only lighting it, not switching it back off, is "landing here"
-        else playOffClick(node.id); // a manual off gets its own tiny cue instead of just going silent
+        // Manual on: a board pedal gets the cascade's own pacman arrival cue
+        // (eatfruit) -- only lighting it, not switching it back off, is
+        // "landing here". A place="free" node (Engl, Fender, ...) skips that
+        // cue on a manual click and gets its own assigned press sound
+        // instead, same as switching it off -- the pacman cast belongs to
+        // the cascade's own signal path, not to manually flipping a switch
+        // on an amp that never "arrives" anywhere outside that cascade.
+        if (isOn && node.place !== 'free') playArrivalSound(node.id);
+        else playOffClick(node.id);
       });
     } else if (!node.url) {
       // No product page and no LED to toggle -- free to repurpose the
