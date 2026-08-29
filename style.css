@@ -517,6 +517,16 @@ path.connector-hit {
   stroke-width: 2;
 }
 
+/* Layered on top of a connector's own kind class (app.js's
+   markLoopInteriorLinks/wireConnectors) for an ordinary through/fork
+   connector that happens to sit between some pedal's loop-out and its
+   loop-in -- only the dash pattern changes, kind's own stroke/width
+   stand. Must come after every base kind rule above so it wins the
+   cascade. */
+.connector-loop-inside {
+  stroke-dasharray: 6 2;
+}
+
 .connector-loop-out,
 .connector-loop-in {
   stroke: var(--wire-loop);

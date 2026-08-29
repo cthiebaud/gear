@@ -112,17 +112,19 @@
     "exp": { "x": 0.421, "y": 0.005 }
   },
   "ironball": {
-    "file": "Engl-E606.png",
+    "file": ["Engl-E606-off.png", "Engl-E606-on.png"],
     "widthMm": 200,
-    "in": { "x": 0.5, "y": 0 },
+    "in": { "x": 0.083, "y": 0.748 },
     "out": { "x": 0.212, "y": 0.9 },
     "loopOut": { "x": 0.667, "y": 0.915 },
-    "loopIn": { "x": 0.333, "y": 0.925 }
+    "loopIn": { "x": 0.333, "y": 0.925 },
+    "led": { "x": 0.826, "y": 0.748 }
   },
   "twin_reverb": {
     "file": "fender-twin-reverb-1974-cutout.png",
     "widthMm": 240,
-    "in": { "x": 0.5, "y": 0.03 }
+    "in": { "x": 0.381, "y": 0.089 },
+    "led": { "x": 0.91, "y": 0.099 }
   },
   "pedal_power": {
     "file": "voodoolab-4x4.png",

@@ -182,6 +182,15 @@ function attrsToObject(attrList) {
 // a pedal's).
 const VALID_PLACES = new Set(['board', 'free']);
 
+// A PEDAL_SPECS entry's `file` is either a plain "Foo.png" (one static
+// photo) or a ["Foo-off.png", "Foo-on.png"] pair -- a node with the pair
+// gets its whole photo swapped between them instead of relying solely on
+// the drawn .led-dot overlay (see setLedImage/renderNodeBox): some panels
+// (the Ironball's row of little indicator lights) read far better as an
+// actually-lit photo than a synthetic dot. Off-first by position, not by
+// filename convention, so config.json is the only place this is decided --
+// nothing here parses filenames to guess which is which, and nothing ever
+// requests a variant this array doesn't actually list.
 function makeNode(id, attrs) {
   const spec = PEDAL_SPECS[id] || null;
   const label = attrs.label != null ? parseLabel(attrs.label) : { name: null, ports: [] };
@@ -189,16 +198,72 @@ function makeNode(id, attrs) {
   if (!VALID_PLACES.has(place)) {
     throw new Error(`config.dot: node "${id}" has place="${place}", expected one of ${[...VALID_PLACES].join('/')}`);
   }
+  const hasLedImages = !!(spec && Array.isArray(spec.file));
+  const image = spec
+    ? '/images/' + (hasLedImages ? spec.file[0] : spec.file)
+    : (attrs.image ? '/images/' + attrs.image : null);
   return {
     id,
     name: label.name || id,
     owner: attrs.owner || null,
     place,
     spec,
-    image: spec ? '/images/' + spec.file : (attrs.image ? '/images/' + attrs.image : null),
+    image,
+    hasLedImages,
+    ledOffSrc: hasLedImages ? image : null,
+    ledOnSrc: hasLedImages ? '/images/' + spec.file[1] : null,
     url: attrs.url || null, // product page to open when the image is clicked, if any
     el: null, // <img> element, filled in during render
   };
+}
+
+// Whatever's patched into a loop-out/loop-in pair (e.g. Electric Blue
+// Chorus -> Capistan -> BlueSky, between Ironball's send and return) is
+// visually part of the loop even though each of those interior edges is
+// its own ordinary `through`/`fork` connector -- being "inside a loop" is
+// a fact about the edge's place in the chain, not something worth
+// authoring on the edge itself in config.dot (rearrange what's patched
+// into a loop and it would just be wrong until someone remembered to
+// retag it). So it's derived here, once, by walking forward from the
+// loop-out's target until the matching loop-in's source is reached, and
+// flagging every link crossed along the way (see link.insideLoop, read
+// back in wireConnectors). Also doubles as a config.dot sanity check: a
+// loop-out with no way back to its own node is almost certainly a typo.
+function markLoopInteriorLinks(links) {
+  const outgoing = new Map(); // node id -> its own outgoing links
+  for (const link of links) {
+    if (!outgoing.has(link.from.id)) outgoing.set(link.from.id, []);
+    outgoing.get(link.from.id).push(link);
+  }
+
+  // Plain DFS path search, backtracking on dead ends (undoing `visited`
+  // on the way back out) so one branch's dead end doesn't wrongly rule
+  // out reaching the same node via a different one.
+  function findPath(fromId, toId, visited) {
+    if (fromId === toId) return [];
+    visited.add(fromId);
+    for (const link of outgoing.get(fromId) || []) {
+      if (visited.has(link.to.id)) continue;
+      const rest = findPath(link.to.id, toId, visited);
+      if (rest) return [link, ...rest];
+    }
+    visited.delete(fromId);
+    return null;
+  }
+
+  for (const loopOut of links) {
+    if (loopOut.kind !== 'loop-out') continue;
+    const master = loopOut.from.id;
+    const loopIn = links.find(l => l.kind === 'loop-in' && l.to.id === master);
+    if (!loopIn) {
+      throw new Error(`config.dot: "${master}" has a loop-out but no loop-in back into it`);
+    }
+    const path = findPath(loopOut.to.id, loopIn.from.id, new Set());
+    if (!path) {
+      throw new Error(`config.dot: "${master}"'s loop-out (into "${loopOut.to.id}") never reaches its loop-in (from "${loopIn.from.id}") -- check what's patched into the loop`);
+    }
+    for (const link of path) link.insideLoop = true;
+  }
 }
 
 // Walks a parsed DOT graph's top-level statements in order, collecting
@@ -281,6 +346,8 @@ function buildModel(ast) {
       kind,
     };
   });
+
+  markLoopInteriorLinks(links);
 
   // Board layout order, in first-seen order, spec or not (renderPage
   // splits it by `place` from there).
@@ -378,6 +445,7 @@ function renderNodeBox(node, baseWidthPx) {
       img.title = `${node.name} — toggle LED`;
       imgWrap.addEventListener('click', () => {
         const isOn = led.classList.toggle('on');
+        setLedImage(node, isOn);
         if (isOn) playEatFruit(node.id); // same cue as the cascade's own arrival (see blinkLed/playArrivalSound) -- only lighting it, not switching it back off, is "landing here"
       });
     } else if (!node.url) {
@@ -1628,7 +1696,7 @@ function wireConnectors(Avoid, root, sections) {
       const fromMinLen = fromFrac.stub == null ? (MIN_STUB_PX + fromLane * LANE_STEP_PX) : fromFrac.stub * nodeRealWidthPx(link.from);
       const toMinLen = toFrac.stub == null ? (MIN_STUB_PX + toLane * LANE_STEP_PX) : toFrac.stub * nodeRealWidthPx(link.to);
       const label = `${link.from.name}.${link.fromPoint} -> ${link.to.name}.${link.toPoint}`;
-      drawList.push({ connRef, kind: link.kind, fromEdge, toEdge, fromMinLen, toMinLen, label, fromId: link.from.id, toId: link.to.id });
+      drawList.push({ connRef, kind: link.kind, insideLoop: link.insideLoop, fromEdge, toEdge, fromMinLen, toMinLen, label, fromId: link.from.id, toId: link.to.id });
     }
   }
 
@@ -1672,7 +1740,7 @@ function wireConnectors(Avoid, root, sections) {
   // above every wire regardless of routing/append order.
   const pacmanLayer = document.createElementNS(SVG_NS, 'g');
   pacmanLayer.setAttribute('class', 'pacman-layer');
-  drawList.forEach(({ points, kind, label, fromId, toId }, index) => {
+  drawList.forEach(({ points, kind, insideLoop, label, fromId, toId }, index) => {
     if (points.length < 2) return;
     const d = roundedPathD(points, CORNER_RADIUS_PX, hopsByIndex[index]);
     // Shared by both the hover bulge and the click-triggered trace ellipse
@@ -1698,7 +1766,7 @@ function wireConnectors(Avoid, root, sections) {
     group.append(hit);
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute('d', d);
-    path.setAttribute('class', 'connector-' + kind);
+    path.setAttribute('class', 'connector-' + kind + (insideLoop ? ' connector-loop-inside' : ''));
     path.setAttribute('data-link', label);
     group.append(path);
     // Unlike audio (through/loop/fork, one-way source->target) or power
@@ -1711,7 +1779,9 @@ function wireConnectors(Avoid, root, sections) {
     // Dashed kinds already get a hover cue from the marching-dash
     // animation (see style.css) -- only solid ones get their own
     // traveling highlight instead, so a wire never gets both at once.
-    if (!DASHED_KINDS.has(kind)) {
+    // insideLoop connectors are dashed too (connector-loop-inside, see
+    // style.css) despite being an ordinary kind, same reasoning.
+    if (!DASHED_KINDS.has(kind) && !insideLoop) {
       const bulge = makePacman('connector-bulge');
       bulge.style.offsetPath = `path("${d}")`;
       bulge.style.animationDuration = durationS + 's';
@@ -2062,21 +2132,64 @@ function ledElFor(nodeId) {
   return NODES_BY_ID.get(nodeId)?.ledEl;
 }
 
+// Swaps a node's own photo between its calibrated -off/-on variants (a
+// config.json `file: [off, on]` pair, see makeNode) -- a node with a plain
+// `file` string is untouched, still just its one static image. Callers
+// below each already know which state applies
+// for their own reason, so this takes it as a plain flag rather than
+// reading it back off the .led-dot's own classList -- during a blink the
+// dot can (see settleLedOn's comment) still be mid-transition between
+// classes, which isn't a fact this should ever have to untangle.
+function setLedImage(node, on) {
+  if (!node || !node.hasLedImages) return;
+  node.el.src = on ? node.ledOnSrc : node.ledOffSrc;
+}
+
 // Purely the visual -- callers wanting the arrival sound too call
 // playArrivalSound themselves (see traceFrom and blinkLed below), since
 // a loop's own master pedal wants its LED handled differently (lit for
-// the whole round trip, not this fixed flicker) but the same sound.
+// the whole round trip, not this fixed flicker) but the same sound. The
+// flicker's own marching-dot animation (see style.css) plays out over the
+// *on* photo, if this node has one (see setLedImage) -- same photo
+// settleLedOn's permanently-lit end state switches to and stays on.
 function startLedBlink(nodeId) {
   const led = ledElFor(nodeId);
   if (!led) return;
   led.classList.add('blinking');
+  setLedImage(NODES_BY_ID.get(nodeId), true);
 }
 
-// Ends with the LED off again, same as it was on entry: this is a
-// transient "signal is here" cue, not a toggle of the click-driven .on
-// state from renderNodeBox.
+// Forces the LED fully off -- used to blank a node whose flicker got cut
+// short by a manual stop (see stopCascade/resetAllLeds), not by a natural
+// arrival cue running to completion (see settleLedOn below for that case).
 function stopLedBlink(nodeId) {
   ledElFor(nodeId)?.classList.remove('blinking', 'on');
+  setLedImage(NODES_BY_ID.get(nodeId), false);
+}
+
+// Every node's LED, forced off -- blanks the board back to its start-of-run
+// look. Used by stopCascade (a user-cut-short run resets to idle same as
+// it started) and by startCascade itself (so a repeat run's "everything
+// lights up along the way" progression is visible again, rather than
+// starting from last run's already-lit board).
+function resetAllLeds() {
+  for (const node of NODES_BY_ID.values()) stopLedBlink(node.id);
+}
+
+// A node's arrival flicker settling into a steady, permanently-lit state
+// once the signal has actually passed through it -- unlike stopLedBlink,
+// this is what "visited" looks like from here on, not "idle": the board
+// fills in as the cascade runs, and the fully-lit end state is deliberate
+// (see blinkLed/enterNode). Guarded by cascadeActive because a manual stop
+// mid-flicker races this: resetAllLeds() may already have turned this same
+// LED off by the time the awaited flicker/round-trip resolves, and that
+// off should win, not be undone back to lit.
+function settleLedOn(nodeId) {
+  if (!cascadeActive) return;
+  const led = ledElFor(nodeId);
+  if (!led) return;
+  led.classList.remove('blinking');
+  led.classList.add('on');
 }
 
 // --- Cascade control (spacebar toggle) ------------------------------------
@@ -2248,6 +2361,7 @@ async function startCascade() {
   if (cascadeActive || !TRACEABLE_NODE_ID) return;
   setCascadeActive(true);
   resetStopSignal();
+  resetAllLeds(); // blank the board so a repeat run's LEDs-fill-in-as-it-goes progression is visible again, not starting from last run's already-lit state
   showStartPreview();
   await playBeginning(); // gates the whole cascade -- see playBeginning
   hideStartPreview(); // whether the jingle ran to completion or startCascade is about to bail below -- either way, the real cascade (or nothing) takes over from here
@@ -2288,7 +2402,7 @@ function stopCascade() {
   stopSignal.resolve();
   for (const anim of activeAnimations) anim.cancel();
   activeAnimations.clear();
-  for (const node of NODES_BY_ID.values()) stopLedBlink(node.id);
+  resetAllLeds();
   document.querySelectorAll('.connector-trace').forEach(trace => { trace.style.opacity = 0; });
   // Also covers a stop mid-jingle: fadeOutAndReset below only pauses
   // SOUND_BEGINNING, which never fires the 'ended' event playBeginning()
@@ -2321,14 +2435,16 @@ function toggleCascade() {
 }
 
 // Announces a just-reached node (see playArrivalSound) and, if it has an
-// LED, flickers it for a fixed window before the cascade pushes the
-// bulge on out -- see traceFrom. Nodes with their own FX loop don't use
-// this: their LED instead stays lit for the whole loop round trip
-// (traceFrom handles that directly), same arrival sound either way.
+// LED, flickers it for a fixed window before settling permanently lit (see
+// settleLedOn) as the cascade pushes the bulge on out -- see traceFrom.
+// Nodes with their own FX loop don't use this: their LED instead stays lit
+// for the whole loop round trip (traceFrom handles that directly), same
+// arrival sound either way.
 //
-// A place="free" node (amp, PSU, ...) has no LED to blink at all, so
-// there's nothing to wait on -- the sound alone is its whole cue, and
-// traceFrom moves on right after.
+// A node with no `led` calibrated in config.json has nothing to blink at
+// all -- true of most place="free" nodes (amp, PSU, ...), though not all
+// (see e.g. ironball/twin_reverb) -- so the sound alone is its whole cue,
+// and traceFrom moves on right after.
 async function blinkLed(nodeId) {
   playArrivalSound(nodeId);
   if (!ledElFor(nodeId)) return;
@@ -2337,7 +2453,7 @@ async function blinkLed(nodeId) {
     new Promise(res => setTimeout(res, LED_BLINK_DURATION_MS)),
     stopSignal.promise,
   ]);
-  stopLedBlink(nodeId);
+  settleLedOn(nodeId);
 }
 
 // Plays one connector's own trace ellipse, then continues the cascade
@@ -2380,7 +2496,7 @@ async function enterNode(nodeId, dispatched) {
     playArrivalSound(nodeId);
     startLedBlink(nodeId);
     await Promise.all(loopOutEdges.map(e => fireTraceEdge(e, dispatched)));
-    stopLedBlink(nodeId);
+    settleLedOn(nodeId);
   } else {
     await blinkLed(nodeId);
   }
