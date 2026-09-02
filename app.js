@@ -25,18 +25,18 @@
 //                                  jacks to calibrate, so there's nothing
 //                                  for PEDAL_SPECS to key on.
 //   place="free"                 -> renders as a plain box outside the
-//                                  board rectangle (independent of
+//                                  pedalboard rectangle (independent of
 //                                  whether it happens to have a
 //                                  PEDAL_SPECS entry for real-width
 //                                  scaling, which some free nodes have
 //                                  just so their image scales like a
-//                                  pedal's) instead of the default,
-//                                  "on top of the board", packed into the
-//                                  bordered rectangle's rows. *Where*
-//                                  around the board a "free" node actually
-//                                  ends up (which compass side) is
-//                                  computed, not configured -- see
-//                                  placeFreeItems.
+//                                  pedal's) instead of the default, inside
+//                                  it. *Where* -- on the board or off it --
+//                                  is the only thing this attribute picks;
+//                                  the real (x, y) itself is computed, not
+//                                  configured, by minimizing total
+//                                  signal-path length -- see the Board
+//                                  layout section further down.
 //   id:port -> id2:port2 [kind="..."]
 //                               -> a connection. kind is through (the
 //                                  default, omit it) | loop-out | loop-in
@@ -51,21 +51,17 @@
 // explicit beats a guessed default, and it costs nothing since undrawn
 // edges don't need to resolve to anything.
 //
-// Declaration order in the file (first time each node id appears, either
-// as its own node statement or inside an edge) is what determines board
-// layout order -- same principle as the old custom syntax's "line order
-// determines connections", just carried over to DOT's flat edge list.
-// `{ rank=same; a; b; c; }` overrides that for the nodes it lists: they
-// become one explicit row, in that order, instead of wherever automatic
-// width-based packing would otherwise put them (see segmentBoard). It's
-// real Graphviz syntax (same-tier grouping), not an app-specific
-// invention, so the file stays valid input to `dot -Tsvg` too.
+// Declaration order in the file no longer has any bearing on layout --
+// position is computed purely from the signal-path-length rule above, not
+// from where a node happens to first appear. A `{ rank=same; a; b; c; }`
+// block still parses fine (real Graphviz syntax, so the file stays valid
+// input to `dot -Tsvg` too) but isn't given any meaning here either --
+// there's no "row" left for it to pin anything to.
 //
 // Multiple rigs, one page: index.html?config=NAME loads NAME.dot instead
-// of the default config.dot (see main()). Layout -- both the on-board row
-// breaks and where every "free" node ends up -- is computed fresh from
-// whatever NAME.dot describes; there's no separate per-config stylesheet
-// to keep in sync.
+// of the default config.dot (see main()). Layout -- where every node,
+// on-board or "free", ends up -- is computed fresh from whatever NAME.dot
+// describes; there's no separate per-config stylesheet to keep in sync.
 
 // Real-world scale: widths are the actual measured footprint (see
 // pedal-dimensions-fixed.txt -- width = left-to-right, the dimension
@@ -73,6 +69,17 @@
 // all of them, so two pedals of different real size actually look
 // different size next to each other.
 const PX_PER_MM = 2.2;
+
+// The board rectangle's own real-world footprint, in the same two units a
+// pedalboard actually gets shopped for in -- cm (everywhere PX_PER_MM's
+// own calibration data came from) and inches (US enclosure/rack specs).
+// Just PX_PER_MM run backward: widthPx / PX_PER_MM is the mm this same
+// ratio was built from in the first place.
+function formatRealSize(widthPx, heightPx) {
+  const wCm = widthPx / PX_PER_MM / 10, hCm = heightPx / PX_PER_MM / 10;
+  const wIn = widthPx / PX_PER_MM / 25.4, hIn = heightPx / PX_PER_MM / 25.4;
+  return `${wCm.toFixed(1)} × ${hCm.toFixed(1)} cm (${wIn.toFixed(1)} × ${hIn.toFixed(1)} in)`;
+}
 
 // jack coordinates are fractions (0-1) of the *cropped* image's own
 // width/height, read off the product photo's silhouette (see
@@ -95,11 +102,9 @@ const PX_PER_MM = 2.2;
 // routing changes: the connector's own lane index is still consumed as
 // usual (so later connectors on the same node still get spaced past
 // it), only the length it's compared against is replaced.
-// `sidebar: true` renders the node beside the packed rows instead of
-// inside one (see renderPage). Loaded at runtime from a JSON file
-// (`${configName}.json`, see main()) rather than baked in here, same
-// "edit data, not code" reasoning as config.dot itself; empty until
-// then.
+// Loaded at runtime from a JSON file (`${configName}.json`, see main())
+// rather than baked in here, same "edit data, not code" reasoning as
+// config.dot itself; empty until then.
 let PEDAL_SPECS = {};
 
 const DEFAULT_WIDTH_PX = 120;
@@ -286,7 +291,6 @@ function buildModel(ast) {
   const nodeAttrs = new Map(); // id -> attrs object (from any node_stmt seen)
   const order = []; // ids, first-seen order
   const edges = []; // { fromId, fromPort, toId, toPort, attrs }
-  const rankGroups = []; // arrays of ids, one array per `{ rank=same; ... }` block
 
   function see(id) {
     if (!nodeAttrs.has(id)) {
@@ -312,23 +316,13 @@ function buildModel(ast) {
         edges.push({ fromId: from.id, fromPort: from.port.id, toId: to.id, toPort: to.port.id, attrs });
       }
     } else if (stmt.type === 'subgraph' && stmt.children) {
-      // A `{ rank=same; a; b; c; }` block is a subgraph whose children are
-      // one graph-level attr_stmt (rank=same) plus a bare node_stmt per
-      // member (dotparser's shape for it, confirmed by hand -- there's no
-      // separate AST node type for "rank group"). Walk it like any other
-      // subgraph (so the members still get `see()`d and their own attrs
-      // merged), and additionally collect their ids as one row group, in
-      // the order listed.
-      const isRankSame = stmt.children.some(c =>
-        c.type === 'attr_stmt' && c.target === 'graph' &&
-        (c.attr_list || []).some(a => a.id === 'rank' && String(a.eq) === 'same')
-      );
-      const groupIds = [];
-      stmt.children.forEach(c => {
-        walk(c);
-        if (isRankSame && c.type === 'node_stmt') groupIds.push(c.node_id.id);
-      });
-      if (isRankSame && groupIds.length) rankGroups.push(groupIds);
+      // A subgraph's children still need walking (so members get `see()`d
+      // and their own attrs merged) regardless of what the subgraph itself
+      // means -- e.g. a `{ rank=same; a; b; c; }` block, DOT's own way of
+      // pinning nodes to one row, which this app has no use for: layout is
+      // free-form now (see the Board layout section), so there's no "row"
+      // left for that hint to pin anything to.
+      stmt.children.forEach(walk);
     }
   }
   (graph.children || []).forEach(walk);
@@ -354,9 +348,8 @@ function buildModel(ast) {
   // Board layout order, in first-seen order, spec or not (renderPage
   // splits it by `place` from there).
   const nodeList = order.map(id => nodes.get(id));
-  const rowGroups = rankGroups.map(ids => ids.map(id => nodes.get(id)));
 
-  return { nodeList, links, rowGroups };
+  return { nodeList, links };
 }
 
 // --- Renderer -----------------------------------------------------------
@@ -572,30 +565,41 @@ function renderNodeBox(node, baseWidthPx) {
   return box;
 }
 
-// --- Board layout -----------------------------------------------------
+// --- Board layout (placement) -------------------------------------------
 //
 // Computes the whole page's geometry in JS, at "scale=1" (i.e. the same px
 // values a scale of 1 always renders at -- see applyScale, near main()),
 // then main() solves for the largest scale that fits the viewport with no
-// scrolling. Two things are searched for, in this order: (1) how many rows
-// the on-board chain's freely-packable runs break into (see
-// candidateRowPlans/widthForRowCount) -- primarily to keep the resulting
-// rectangle's aspect ratio close to what the viewport wants (a better fit
-// there directly means a bigger achievable scale, i.e. less uncovered
-// space), tie-broken by minimizing total connector length; (2) for that
-// choice of rows, exactly where each `place="free"` node ends up: its own
-// real (x, y) around the rectangle (see placeFreeItems), not a bucket in
-// a fixed grid, by the same wire-length metric. Both searches are small
-// and exact (n is ~15) -- no randomness, so results are reproducible and
-// (re-)explainable.
+// scrolling. Placement itself follows two rules: a node is either inside
+// "the pedalboard rectangle" (no `place` override) or outside it
+// (`place="free"`) -- no row order, no compass-side bucketing, no fixed
+// grid; and subject to that, position mostly minimizes total signal-path
+// length (Manhattan distance, weighted by wireWeight -- see manhattan/
+// totalWireLength below). Manhattan rather than Euclidean isn't a style
+// choice: it's what the actual routed wire (libavoid, orthogonal-only --
+// see the Connector overlay section further down, untouched by any of
+// this) will really cost, so nothing diagonal can ever look artificially
+// cheap to the search. A much lower-weighted third term (see
+// AREA_PENALTY_PER_PX2) nudges toward a smaller overall footprint too --
+// pure wire-length minimization alone left real dead space in practice
+// (an oddly-shaped board, wasted margin around the whole canvas), and
+// this is deliberately just a tie-break pressure, not a competing
+// objective, so it doesn't undo what makes wire-length minimization work.
+//
+// That's a real (NP-hard) placement-optimization problem at this node
+// count, not a small enough space to brute-force the way the old
+// row-count/compass-side search was -- see annealPlacement, which finds
+// an approximate answer via simulated annealing rather than an exact one.
+// Viewport fit plays no part in this search at all (unlike the row-count
+// search it replaces) -- solveLayout below only ever asks it *afterward*,
+// same as applyScale always has, to convert the solved shape into a
+// scale that fits the screen. The compactness term above is deliberately
+// blind to the viewport's own size/aspect too, for the same reason --
+// see AREA_PENALTY_PER_PX2's own comment.
 
-const ROW_GAP_X_PX = 48;    // horizontal gap between pedals in a row -- keep in sync with .chain's base gap in style.css
-const ROW_GAP_Y_PX = 1.6;   // vertical gap between stacked rows -- keep in sync with .board-rows's base gap
-const BOARD_LOWER_GAP_PX = 40; // gap between the row-stack and the sidebar -- keep in sync with .board-lower's base gap
-const BOARD_PADDING_X_PX = 32; // .board left/right padding, base
-const BOARD_PADDING_Y_PX = 28; // .board top/bottom padding, base
-const COMPASS_GAP_PX = 16;  // gap between free items sharing a compass side, and between a side and the board
-const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for any realistic pedal count
+const BOARD_PADDING_X_PX = 32; // .board's own padding around its tightest bounding box of board nodes -- purely cosmetic breathing room, doesn't feed into placement itself
+const BOARD_PADDING_Y_PX = 28;
+const MIN_GAP_PX = 16; // the least any two same-class boxes, or a free node and the board rectangle, should ever sit apart -- see annealPlacement's overlap penalty
 
 // Power edges get a much lower weight in the wire-length objective than
 // signal/exp cables: nobody's judging this rig by how short its power
@@ -603,7 +607,7 @@ const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for a
 // would happily wreck a clean signal layout just to shave a few px off a
 // power cable. Not zero -- a small weight still keeps the PSU from landing
 // somewhere arbitrary when it's otherwise a tie -- just far from equal.
-const WIRE_WEIGHT = { power: 0 };
+const WIRE_WEIGHT = { power: 0.1 };
 function wireWeight(kind) { return WIRE_WEIGHT[kind] ?? 1; }
 
 // No prior breakpoint existed anywhere in this file -- the whole layout
@@ -658,197 +662,6 @@ function nodeSizePx(node) {
   return { w, h: w * aspect + labelH };
 }
 
-// Greedily bin-packs a chain into rows that each fit within maxWidthPx,
-// using each node's real rendered width -- keeps consecutive (adjacent in
-// the signal chain) pedals next to each other, only breaking to a new row
-// once the current one is full. Order-preserving (declaration order stays
-// intact, see the "Reordering" decision in the plan) -- the only thing
-// under this function's control is *where* it breaks.
-function packRows(chain, maxWidthPx) {
-  const rows = [[]];
-  let used = 0;
-  for (const node of chain) {
-    const w = nodeRealWidthPx(node);
-    const row = rows[rows.length - 1];
-    if (row.length > 0 && used + ROW_GAP_X_PX + w > maxWidthPx) {
-      rows.push([]);
-      used = 0;
-    }
-    rows[rows.length - 1].push(node);
-    used += (rows[rows.length - 1].length > 1 ? ROW_GAP_X_PX : 0) + w;
-  }
-  return rows;
-}
-
-// The smallest maxWidthPx that packs `items` into at most `k` rows, found
-// by binary search on the answer using packRows itself as the feasibility
-// check -- exact, and reuses packRows rather than reimplementing
-// bin-packing a second way. Lower bound is 0, not the widest single
-// item's own width: that bound would be correct for the *different*
-// problem of optimally partitioning into exactly k groups minimizing the
-// largest group's sum (where every group must hold at least its own
-// widest member) -- packRows is a plain greedy left-to-right packer, and
-// a fresh (empty) row always accepts its first item regardless of the
-// threshold (see packRows: the width check only applies once
-// `row.length > 0`), so a threshold *below* the widest item is still
-// perfectly valid, it just means that item ends up alone. Starting `lo`
-// too high silently made some row counts unreachable (e.g. two different
-// k's could converge on the same threshold and yield the same actual row
-// count, one k short of what was actually achievable).
-function widthForRowCount(items, k) {
-  const widths = items.map(nodeRealWidthPx);
-  if (k <= 1) return widths.reduce((a, w) => a + w, 0) + Math.max(0, items.length - 1) * ROW_GAP_X_PX;
-  if (k >= items.length) return Math.max(...widths);
-  let lo = 0, hi = widths.reduce((a, w) => a + w, 0);
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (packRows(items, mid).length <= k) hi = mid; else lo = mid + 1;
-  }
-  return lo;
-}
-
-// Splits the on-board chain into fixed segments (an explicit `{ rank=same;
-// ... }` group from config.dot, rendered as exactly one row, in the order
-// listed) and free-packable segments (everything else, handed to
-// packRows/widthForRowCount) -- same split buildRows used to do, just
-// returned as data instead of immediately packed at one fixed width.
-function segmentBoard(onBoard, rowGroups) {
-  const onBoardSet = new Set(onBoard);
-  const groupOf = new Map(); // node -> its group's node array
-  for (const group of rowGroups) {
-    const members = group.filter(n => onBoardSet.has(n));
-    if (!members.length) continue;
-    for (const n of members) groupOf.set(n, members);
-  }
-
-  const segments = [];
-  let pending = [];
-  const flush = () => { if (pending.length) segments.push({ fixed: false, nodes: pending }); pending = []; };
-  const emitted = new Set();
-  for (const node of onBoard) {
-    if (emitted.has(node)) continue; // already emitted as part of an earlier group
-    const group = groupOf.get(node);
-    if (group) {
-      flush();
-      segments.push({ fixed: true, nodes: group });
-      group.forEach(n => emitted.add(n));
-    } else {
-      pending.push(node);
-    }
-  }
-  flush();
-  return segments;
-}
-
-// Yields every candidate full row plan: one row-count choice per
-// free-packable segment, cross-producted (capped -- current configs only
-// ever have one such segment, so this is just that segment's own options;
-// guarded anyway against a future config with more than one).
-function* candidateRowPlans(onBoard, rowGroups) {
-  const segments = segmentBoard(onBoard, rowGroups);
-  const freeSegIdxs = segments.map((s, i) => (s.fixed ? -1 : i)).filter(i => i >= 0);
-  const optionsPerSeg = freeSegIdxs.map(i => {
-    const cap = Math.min(segments[i].nodes.length, MAX_ROWS_PER_RUN);
-    return Array.from({ length: cap }, (_, k) => k + 1);
-  });
-
-  function* cross(i, acc) {
-    if (i === optionsPerSeg.length) { yield acc; return; }
-    for (const k of optionsPerSeg[i]) yield* cross(i + 1, [...acc, k]);
-  }
-
-  let count = 0;
-  for (const combo of cross(0, [])) {
-    if (++count > 64) break; // sanity cap on the cross-product
-    const rows = [];
-    let ci = 0;
-    for (const seg of segments) {
-      if (seg.fixed) { rows.push(seg.nodes); continue; }
-      const k = combo[ci++];
-      // Both ends of the row-count range are built directly rather than
-      // via packRows + a computed width threshold: k=1 (one row) would
-      // need a threshold exactly equal to the items' own total width,
-      // which risks a false split from ordinary floating-point summation
-      // error right at that boundary (packRows' own `>` check landing on
-      // the wrong side of an intended tie); k >= seg.nodes.length (one row
-      // per node) can't be reached via *any* threshold at all -- packRows
-      // still greedily combines any adjacent items that together fit
-      // under it, however small the threshold, so it's built directly
-      // instead of asking packRows to (re-)discover either shape.
-      let rowsForSeg;
-      if (k <= 1) rowsForSeg = [seg.nodes];
-      else if (k >= seg.nodes.length) rowsForSeg = seg.nodes.map(n => [n]);
-      else rowsForSeg = packRows(seg.nodes, widthForRowCount(seg.nodes, k));
-      rows.push(...rowsForSeg);
-    }
-    yield rows;
-  }
-}
-
-// Computes every node's local {x, y, w, h} (top-left origin at the
-// row-stack's own top-left) for one row plan, mirroring the actual CSS:
-// .board-rows stacks rows, and each row alternates direction
-// (row-reverse on every other one, same rule renderPage's rowEl className
-// uses) so that consecutive rows' "joining" pedals -- the actual endpoints
-// of the one chain edge that crosses the row break -- land on the same
-// side, the snake pattern that keeps that transition short. Reused by both
-// the solver (scale=1 sizes) and, indirectly, real rendering (same rows,
-// same alternation, just scaled).
-// `flip` XORs into every row's own alternation bit -- a single global
-// left/right mirror of the whole rectangle. Alternation itself (odd rows
-// reversed relative to even ones) stays on regardless: it's what keeps a
-// chain edge that crosses a row break short (the two pedals it connects
-// land on the same side, one row above the other), and that's still true
-// under either flip state, just mirrored along with everything else.
-// *Which* of the two flip states is better is a real, and cheap, second
-// thing to search for (see solveLayout) -- worth doing because it's the
-// only lever that changes which literal edge of the rectangle a given
-// pedal ends up on, which a free node's own wire length (see
-// placeFreeItems) very much cares about,
-// and because a *single* row has no adjacent row to alternate against in
-// the first place, so without a flip choice it would always render
-// mirrored for no reason at all.
-function measureRows(rows, flip) {
-  const pos = new Map();
-  let y = 0;
-  let width = 0;
-  // .board-rows is `flex-direction: column-reverse` (see style.css), so
-  // rows[0] -- the first one appended to the DOM, in renderPage -- ends up
-  // rendered at the *bottom*, not the top, and each following row stacks
-  // upward from there. Walking the array back-to-front here, while
-  // accumulating y top-down, is what makes this function's y values
-  // actually match that rendering, not just each row's own internal
-  // (order-independent) height sum -- matters for telling a free node
-  // "above" from "below" correctly (see placeFreeItems), not for
-  // in-rectangle wire length, which only ever depends on *relative*
-  // positions and so was never affected by this. `reversed` still keys off
-  // each row's own original array index (rowIdx), matching renderPage's
-  // identical rule for its row-reverse className -- that's a left/right
-  // alternation, independent of which order rows are walked in here.
-  for (let rowIdx = rows.length - 1; rowIdx >= 0; rowIdx--) {
-    const row = rows[rowIdx];
-    const reversed = (rowIdx % 2 === 0) !== flip;
-    let x = 0;
-    let rowH = 0;
-    row.forEach((node, i) => {
-      const { w, h } = nodeSizePx(node);
-      if (i > 0) x += ROW_GAP_X_PX;
-      pos.set(node, { x, y, w, h });
-      x += w;
-      rowH = Math.max(rowH, h);
-    });
-    if (reversed) {
-      for (const node of row) {
-        const p = pos.get(node);
-        p.x = x - p.x - p.w;
-      }
-    }
-    width = Math.max(width, x);
-    y += rowH + ROW_GAP_Y_PX;
-  }
-  return { pos, width, height: rows.length ? y - ROW_GAP_Y_PX : 0 };
-}
-
 function portPoint(pos, node, which) {
   const p = pos.get(node);
   const frac = jackFraction(node, which);
@@ -873,263 +686,425 @@ function totalWireLength(links, pos) {
   return total;
 }
 
-const COMPASS_SIDES = ['above', 'left', 'right', 'below'];
-
-// Which rectangle edge a point is nearest, in the rectangle's own local
-// frame (0,0)-(boardW,boardH) -- and, along that edge, the coordinate
-// (x for above/below, y for left/right) a node anchored to that point
-// would ideally sit at. Point can be anywhere, inside the rectangle or
-// arbitrarily far outside it (a free node's own connections routinely put
-// its anchor well past the rectangle's own bounds): clamping the point
-// into the rectangle first is what finds the true nearest boundary point
-// when it's outside (a clamped coordinate that actually moved is exactly
-// the one that was pinned to an edge); a point already inside instead
-// picks whichever of the 4 edges it's closest to, same rule jackEdge uses
-// for a jack fraction.
-function nearestEdge(boardW, boardH, px, py) {
-  const cx = Math.min(boardW, Math.max(0, px));
-  const cy = Math.min(boardH, Math.max(0, py));
-  const xPinned = cx !== px, yPinned = cy !== py;
-  if (xPinned || yPinned) {
-    const overX = px < 0 ? -px : px - boardW;
-    const overY = py < 0 ? -py : py - boardH;
-    if (xPinned && (!yPinned || overX >= overY)) return { side: px < 0 ? 'left' : 'right', coord: cy };
-    return { side: py < 0 ? 'above' : 'below', coord: cx };
-  }
-  const d = { above: py, below: boardH - py, left: px, right: boardW - px };
-  const side = Object.keys(d).reduce((a, b) => (d[a] <= d[b] ? a : b));
-  return { side, coord: (side === 'above' || side === 'below') ? px : py };
+// Tiny seeded PRNG (mulberry32) -- Math.random() would make the board
+// rearrange itself on every single reload for no reason; a fixed seed
+// keeps a given board reproducible/debuggable run to run, even though the
+// search itself is still only approximate (annealing, not exact search --
+// see the section comment above).
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-// A free node's own pull point: the weighted centroid of every connection
-// it actually has a resolvable anchor for right now. `resolvedPos` is
-// whatever's known at this point in the 2-pass placement below (see
-// placeFreeItems) -- board nodes are always in it; a *free* node only
-// once its own first-pass position has been computed, which is exactly
-// what makes the second pass able to anchor a free<->free edge -- even
-// one between two free nodes that connect to nothing else -- that the
-// first pass necessarily couldn't.
-function freeNodeAnchor(node, links, resolvedPos) {
-  let sx = 0, sy = 0, sw = 0;
-  for (const l of links) {
-    if (l.from !== node && l.to !== node) continue;
-    const other = l.from === node ? l.to : l.from;
-    const otherPoint = l.from === node ? l.toPoint : l.fromPoint;
-    const p = resolvedPos.get(other);
-    if (!p) continue;
-    const frac = jackFraction(other, otherPoint);
-    const a = frac ? { x: p.x + frac.x * p.w, y: p.y + frac.y * p.h } : { x: p.x + p.w / 2, y: p.y + p.h / 2 };
-    const wt = wireWeight(l.kind);
-    sx += a.x * wt; sy += a.y * wt; sw += wt;
-  }
-  return sw ? { x: sx / sw, y: sy / sw } : null;
+// Overlap area between two `{x, y, w, h}` boxes, inflated by `margin` on
+// every side first -- used both to keep boxes from literally overlapping
+// (margin 0) and to keep them from crowding closer than MIN_GAP_PX (the
+// clearance libavoid actually needs to route a wire *between* two
+// adjacent boxes, not just around their bare edges).
+function overlapArea(a, b, margin) {
+  const ax = a.x - margin, ay = a.y - margin, aw = a.w + 2 * margin, ah = a.h + 2 * margin;
+  const w = Math.min(ax + aw, b.x + b.w) - Math.max(ax, b.x);
+  const h = Math.min(ay + ah, b.y + b.h) - Math.max(ay, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
 }
 
-// Assigns every free node to whichever rectangle edge its own anchor (see
-// freeNodeAnchor) is nearest, grouped by edge -- one round of the 2-pass
-// process in placeFreeItems.
-function assignEdges(freeNodes, links, resolvedPos, boardW, boardH) {
-  const bySide = { above: [], left: [], right: [], below: [] };
-  for (const node of freeNodes) {
-    const { w, h } = nodeSizePx(node);
-    const anchor = freeNodeAnchor(node, links, resolvedPos);
-    // No resolvable anchor at all (not even a free<->free one) can only
-    // happen if a node has no edges whatsoever -- buildModel wouldn't have
-    // included it in nodeList in the first place, so this is unreachable
-    // in practice; the fallback is just defensive.
-    const { side, coord } = anchor ? nearestEdge(boardW, boardH, anchor.x, anchor.y) : { side: 'above', coord: boardW / 2 };
-    bySide[side].push({ node, w, h, coord });
+// The tight bounding box of every board node's current position -- this
+// *is* "the pedalboard rectangle" (rule 1), not an independently-chosen
+// shape; BOARD_PADDING_X/Y_PX is added on top only when actually
+// rendering it (see solveLayout), never fed back into placement itself.
+function boardBBox(onBoard, pos) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of onBoard) {
+    const p = pos.get(n);
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
   }
-  return bySide;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
-// Lays same-edge items out along that edge, in ideal-coordinate order,
-// preserving each item's own ideal position exactly where nothing else
-// contends for it -- same principle as packRows but along a line instead
-// of bin-packing by width. Unlike a plain greedy sweep (nudge each item
-// just far enough forward to clear the one before, never revisit), this
-// keeps the *whole line* as close as possible, in aggregate, to every
-// item's own ideal coord: a collision between two neighbors no longer
-// cascades forward through every item after them just because they
-// happened to sort later -- only the items actually contending for the
-// same stretch of the edge get pulled together, still centered on their
-// shared compromise position, while anyone else keeps their own spot.
-// Standard isotonic regression (PAVA, pool-adjacent-violators): shift
-// each item's ideal coord left by the cumulative minimum gap every
-// earlier item in the sort needs before it, so "respects every minimum
-// gap" becomes plain "shifted values are non-decreasing" -- solve that
-// with PAVA (repeatedly averaging together any adjacent pair that
-// violates order), then shift back.
-function layoutAlongEdge(items) {
-  const sorted = [...items].sort((a, b) => a.coord - b.coord);
-  if (!sorted.length) return new Map();
-
-  let cumGap = 0;
-  const shifted = sorted.map((it, i) => {
-    if (i > 0) cumGap += (sorted[i - 1].size + it.size) / 2 + COMPASS_GAP_PX;
-    return it.coord - cumGap;
-  });
-
-  const blocks = []; // each: { sum, count, items } -- mean = sum / count
-  for (let i = 0; i < shifted.length; i++) {
-    let block = { sum: shifted[i], count: 1, items: [sorted[i]] };
-    while (blocks.length && blocks[blocks.length - 1].sum / blocks[blocks.length - 1].count > block.sum / block.count) {
-      const prev = blocks.pop();
-      block = { sum: prev.sum + block.sum, count: prev.count + block.count, items: prev.items.concat(block.items) };
-    }
-    blocks.push(block);
+const OVERLAP_PENALTY_PER_PX2 = 25; // scaled well above a typical single-move wire-length delta, so the search reliably ends up clear rather than settling for a cheap overlap
+// Map-based, matching every other node-keyed helper in this file -- used
+// once, on annealPlacement's finished result, to report its own cost (see
+// solveLayout's wireLength) and by anyone poking at a solved layout from
+// outside (this session's own verification harness, notably). annealPlacement
+// itself does NOT call this in its hot loop -- see FastState below for why.
+function placementCost(onBoard, freeNodes, links, pos) {
+  let cost = 0;
+  for (const link of links) {
+    const a = portPoint(pos, link.from, link.fromPoint);
+    const b = portPoint(pos, link.to, link.toPoint);
+    if (a && b) cost += manhattan(a, b) * wireWeight(link.kind);
   }
-
-  const starts = new Map();
-  cumGap = 0;
-  let prevItem = null;
-  for (const block of blocks) {
-    const mean = block.sum / block.count;
-    for (const it of block.items) {
-      if (prevItem) cumGap += (prevItem.size + it.size) / 2 + COMPASS_GAP_PX;
-      starts.set(it.node, mean + cumGap - it.size / 2);
-      prevItem = it;
+  for (let i = 0; i < onBoard.length; i++) {
+    for (let j = i + 1; j < onBoard.length; j++) {
+      cost += overlapArea(pos.get(onBoard[i]), pos.get(onBoard[j]), MIN_GAP_PX / 2) * OVERLAP_PENALTY_PER_PX2;
     }
   }
-  return starts;
-}
-
-// Turns one edge assignment (see assignEdges) into real positions, in the
-// rectangle's own local frame -- (0,0) is the rectangle's own top-left,
-// and a position here is free to be negative or exceed boardW/boardH
-// (e.g. several wide items sharing the top edge can easily need more
-// width than the rectangle itself has -- solveLayout finds the true
-// overall bounding box afterward, over every node's actual position, not
-// just this rectangle's own).
-function layoutBySide(bySide, boardW, boardH) {
-  const pos = new Map();
-  const extents = { above: 0, below: 0, left: 0, right: 0 };
-  for (const side of COMPASS_SIDES) {
-    const items = bySide[side];
-    if (!items.length) continue;
-    const horizontal = side === 'above' || side === 'below';
-    const along = items.map(it => ({ node: it.node, coord: it.coord, size: horizontal ? it.w : it.h }));
-    const reserve = Math.max(...items.map(it => (horizontal ? it.h : it.w))) + COMPASS_GAP_PX;
-    extents[side] = reserve;
-    const starts = layoutAlongEdge(along);
-    for (const it of items) {
-      const start = starts.get(it.node);
-      // 'above'/'left' sit outside the rectangle, so each item's *near*
-      // edge -- its bottom for 'above', its right for 'left' -- is what
-      // should sit flush against the gap, not a shared reserve band sized
-      // to the tallest/widest item on that side: a short pedal sharing
-      // 'above' with a tall amp used to get stranded up near the amp's own
-      // top, with dead space (and extra wire) between it and the board
-      // it's actually wired into. 'below'/'right' never had this problem
-      // -- boardH/boardW + the gap already *is* each item's own near edge,
-      // nothing shared to misalign against.
-      const x = side === 'left' ? -(it.w + COMPASS_GAP_PX) : side === 'right' ? boardW + COMPASS_GAP_PX : start;
-      const y = side === 'above' ? -(it.h + COMPASS_GAP_PX) : side === 'below' ? boardH + COMPASS_GAP_PX : start;
-      pos.set(it.node, { x, y, w: it.w, h: it.h });
+  for (let i = 0; i < freeNodes.length; i++) {
+    for (let j = i + 1; j < freeNodes.length; j++) {
+      cost += overlapArea(pos.get(freeNodes[i]), pos.get(freeNodes[j]), MIN_GAP_PX / 2) * OVERLAP_PENALTY_PER_PX2;
     }
   }
-  return { pos, extents };
+  // Padded, not the tight bbox -- a free node needs to clear the *rendered*
+  // .board rectangle (see solveLayout), which is the tight box plus
+  // BOARD_PADDING_X/Y_PX, not just the pedals' own bare bounding box.
+  const tight = boardBBox(onBoard, pos);
+  const bbox = {
+    x: tight.x - BOARD_PADDING_X_PX, y: tight.y - BOARD_PADDING_Y_PX,
+    w: tight.w + 2 * BOARD_PADDING_X_PX, h: tight.h + 2 * BOARD_PADDING_Y_PX,
+  };
+  for (const n of freeNodes) cost += overlapArea(pos.get(n), bbox, MIN_GAP_PX / 2) * OVERLAP_PENALTY_PER_PX2;
+
+  // Compactness pressure -- see AREA_PENALTY_PER_PX2's own comment, further
+  // down, for why this is here at all and why it's weighted so low.
+  cost += tight.w * tight.h * AREA_PENALTY_PER_PX2;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of [...onBoard, ...freeNodes]) {
+    const p = pos.get(n);
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+  }
+  cost += (maxX - minX) * (maxY - minY) * AREA_PENALTY_PER_PX2;
+  return cost;
 }
 
-// Places every free node -- guitar, amps, the PSU, and so on -- around
-// the rectangle at its own real (x, y), not bucketed into a fixed
-// compass column/row the way a CSS grid would force it to be (a grid
-// area's align-items:center throws away
-// exactly the "how far along this edge" information the search computes
-// -- see the plan/commit message for why that was the actual bug behind
-// free items landing far from what they connect to). Two rounds: the
-// first can only anchor a node via its connections to *board* nodes
-// (nothing free has a position yet); the second re-resolves every node's
-// anchor with the first round's free-node positions folded in too, so a
-// free<->free edge between two nodes that connect to nothing else gets a
-// real anchor on both ends instead of an arbitrary fallback.
-function placeFreeItems(freeNodes, links, boardPos, boardW, boardH) {
-  const round1 = layoutBySide(assignEdges(freeNodes, links, boardPos, boardW, boardH), boardW, boardH);
+const ANNEAL_SEED = 20260902; // arbitrary, fixed -- see mulberry32's own comment for why it's seeded at all
+const ANNEAL_ITERATIONS = 20000;
+const ANNEAL_START_TEMP = 400; // px -- roughly "how far a jitter/swap can still look worth accepting" early on
+const ANNEAL_END_TEMP = 0.5;
 
-  const resolved2 = new Map(boardPos);
-  for (const [n, p] of round1.pos) resolved2.set(n, p);
-  return layoutBySide(assignEdges(freeNodes, links, resolved2, boardW, boardH), boardW, boardH);
+// Flat, index-based mirror of exactly what placementCost above computes --
+// same cost, same rules, just laid out as plain typed arrays instead of a
+// Map of node -> {x,y,w,h} objects. This is annealPlacement's own hot-loop
+// state: at tens of thousands of iterations, each one needing a fresh cost
+// evaluation, Map lookups and per-read object allocation are the dominant
+// cost, not the arithmetic itself -- switching to arrays plus every link/
+// pair pre-resolved to plain integer indices *before* the loop starts is
+// what keeps a real board (~14 nodes, ~15 links) solving in well under a
+// second rather than several seconds.
+function buildFastState(onBoard, freeNodes, links) {
+  const nodes = [...onBoard, ...freeNodes];
+  const n = nodes.length;
+  const indexOf = new Map(nodes.map((node, i) => [node, i]));
+  const isBoard = new Uint8Array(n);
+  for (let i = 0; i < onBoard.length; i++) isBoard[i] = 1;
+
+  const w = new Float64Array(n), h = new Float64Array(n);
+  nodes.forEach((node, i) => { const s = nodeSizePx(node); w[i] = s.w; h[i] = s.h; });
+
+  // Every link, pre-resolved to {ai, bi, dxA, dyA, dxB, dyB, weight} --
+  // dx/dyA/B are the port's own fixed offset from its node's top-left
+  // (fraction * w/h, exactly what portPoint computes), constant regardless
+  // of where the node ends up, so the hot loop never touches jackFraction
+  // or PEDAL_SPECS again once this is built.
+  const resolvedLinks = [];
+  for (const link of links) {
+    const ai = indexOf.get(link.from), bi = indexOf.get(link.to);
+    const fracA = jackFraction(link.from, link.fromPoint);
+    const fracB = jackFraction(link.to, link.toPoint);
+    if (ai == null || bi == null || !fracA || !fracB) continue;
+    resolvedLinks.push({
+      ai, bi,
+      dxA: fracA.x * w[ai], dyA: fracA.y * h[ai],
+      dxB: fracB.x * w[bi], dyB: fracB.y * h[bi],
+      weight: wireWeight(link.kind),
+    });
+  }
+  // Per-node adjacency into resolvedLinks, so a single node's move only
+  // ever walks the handful of links actually touching it.
+  const linksOf = Array.from({ length: n }, () => []);
+  resolvedLinks.forEach((rl, li) => { linksOf[rl.ai].push(li); linksOf[rl.bi].push(li); });
+
+  const boardIdx = [], freeIdx = [];
+  for (let i = 0; i < n; i++) (isBoard[i] ? boardIdx : freeIdx).push(i);
+
+  return { nodes, n, isBoard, w, h, resolvedLinks, linksOf, boardIdx, freeIdx };
 }
 
-// Two-tier comparison used across row-plan candidates: primarily maximize
-// the achievable scale (rule 1 + rule 5 -- a bad aspect ratio directly
-// wastes visible space no matter how tidy the wiring is), tie-broken
-// (within a few percent) by minimizing total wire length (rule 3).
-function isBetterLayout(a, b) {
-  if (a.scale > b.scale * 1.03) return true;
-  if (b.scale > a.scale * 1.03) return false;
-  return a.wireLength < b.wireLength;
+// One node-pair's overlap penalty, inflated by MIN_GAP_PX/2 on each side
+// (see overlapArea's identical Map-based version -- same rule, array
+// arithmetic instead of object field reads).
+function fastOverlapPenalty(x, y, w, h, ox, oy, ow, oh) {
+  const m = MIN_GAP_PX / 2;
+  const overlapW = Math.min(x - m + w + 2 * m, ox + ow) - Math.max(x - m, ox);
+  const overlapH = Math.min(y - m + h + 2 * m, oy + oh) - Math.max(y - m, oy);
+  return overlapW > 0 && overlapH > 0 ? overlapW * overlapH * OVERLAP_PENALTY_PER_PX2 : 0;
 }
 
-// Ties the row-count search and free-item placement search together: for
-// each candidate row plan, lay out the rectangle (+ the sidebar, if any
-// node has one), place every free node (see placeFreeItems), find the true
-// overall bounding box (rectangle and every free node, all of it -- not
-// an approximation from the rectangle's own size plus per-side extents,
-// since free items sharing an edge can collectively need more room than
-// the rectangle itself has), and score that box against the available
-// viewport space. Returns the winning arrangement's absolute position for
-// *every* node (`pos`), already shifted so the whole thing starts at
-// (0, 0) -- ready for renderPage/applyScale to place directly, no
-// grid/flex layout left for the browser to still have an opinion about.
-function solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW, availH) {
-  let best = null;
-  for (const rows of candidateRowPlans(onBoard, rowGroups)) {
-  for (const flip of [false, true]) {
-    const rowGeom = measureRows(rows, flip);
+function fastBoardBBox(st, xs, ys) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const i of st.boardIdx) {
+    minX = Math.min(minX, xs[i]); minY = Math.min(minY, ys[i]);
+    maxX = Math.max(maxX, xs[i] + st.w[i]); maxY = Math.max(maxY, ys[i] + st.h[i]);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
 
-    // A sidebar node (if present) sits beside the row-stack, top-aligned,
-    // full board-lower height -- same structure as today's .board-sidebar.
-    let boardW = rowGeom.width, boardH = rowGeom.height;
-    const boardPos = new Map();
-    for (const [n, p] of rowGeom.pos) boardPos.set(n, p);
-    if (sidebarNodes.length) {
-      let sx = rowGeom.width + BOARD_LOWER_GAP_PX;
-      for (const n of sidebarNodes) {
-        const { w, h } = nodeSizePx(n);
-        boardPos.set(n, { x: sx, y: 0, w, h });
-        boardH = Math.max(boardH, h);
+// Same, over every node -- board and free alike -- rather than just board
+// ones: what solveLayout ends up calling totalW/totalH, i.e. the actual
+// screen footprint applyScale has to fit into.
+function fastTotalBBox(st, xs, ys) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < st.n; i++) {
+    minX = Math.min(minX, xs[i]); minY = Math.min(minY, ys[i]);
+    maxX = Math.max(maxX, xs[i] + st.w[i]); maxY = Math.max(maxY, ys[i] + st.h[i]);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+// A gentle compactness pressure on top of pure wire-length minimization --
+// without it, nothing discourages a stray free node (or a loosely packed
+// board) from leaving the overall footprint far larger than it needs to
+// be, as long as *its own* wires stay short: rule 2 says minimize signal
+// path, not "and don't waste space doing it", but an unusably sprawling
+// board isn't a good outcome either. Weighted low on purpose -- this is a
+// tie-break pressure, not a competing objective: it should nudge between
+// arrangements that cost about the same in wire length, not override wire
+// length's own verdict. Deliberately blind to the *viewport*'s own aspect
+// ratio (unlike the old scale-driven row search) -- rewarding smaller
+// area rather than a specific shape is what keeps annealPlacement's
+// result independent of screen size (see relayout's caching comment).
+const AREA_PENALTY_PER_PX2 = 0.0005;
+
+// The cost of every term that could possibly change if `moved` (one or two
+// node indices) end up at their proposed positions -- links touching a
+// moved node, same-class pairs touching one, and (moving a board node
+// shifts the rectangle itself) every free node's own board-overlap term.
+// Comparing this before/after a proposed move is exactly delta-cost, at a
+// fraction of what recomputing the whole board's cost from scratch would
+// take.
+function linkCost(st, xs, ys, li) {
+  const rl = st.resolvedLinks[li];
+  return (Math.abs((xs[rl.ai] + rl.dxA) - (xs[rl.bi] + rl.dxB)) +
+    Math.abs((ys[rl.ai] + rl.dyA) - (ys[rl.bi] + rl.dyB))) * rl.weight;
+}
+
+function fastLocalCost(st, xs, ys, moved) {
+  let cost = 0;
+  // Sum each moved node's own links/pairs independently -- cheap linear
+  // scans over tiny (<=~10) arrays, no Set needed. The one thing that can
+  // double-count is a link or pair directly *between* the two moved nodes
+  // (visited once from each side) -- subtracted back out once below,
+  // rather than deduping every entry against a hash set up front.
+  for (const i of moved) {
+    for (const li of st.linksOf[i]) cost += linkCost(st, xs, ys, li);
+    const pool = st.isBoard[i] ? st.boardIdx : st.freeIdx;
+    for (const j of pool) {
+      if (j === i) continue;
+      cost += fastOverlapPenalty(xs[i], ys[i], st.w[i], st.h[i], xs[j], ys[j], st.w[j], st.h[j]);
+    }
+  }
+  if (moved.length === 2) {
+    const [i, j] = moved;
+    for (const li of st.linksOf[i]) {
+      const rl = st.resolvedLinks[li];
+      if ((rl.ai === i && rl.bi === j) || (rl.ai === j && rl.bi === i)) cost -= linkCost(st, xs, ys, li);
+    }
+    if (st.isBoard[i] === st.isBoard[j]) {
+      cost -= fastOverlapPenalty(xs[i], ys[i], st.w[i], st.h[i], xs[j], ys[j], st.w[j], st.h[j]);
+    }
+  }
+  // Any board node moving reshapes the rectangle, which every free node's
+  // own overlap term is measured against -- cheap (st.freeIdx is small)
+  // so it's simplest to just always include it, board move or not. Padded
+  // out to BOARD_PADDING_X/Y_PX first, same reasoning as placementCost's
+  // identical padding: a free node needs to clear the *rendered* .board
+  // rectangle, not just the tight bbox of the pedals themselves.
+  const tight = fastBoardBBox(st, xs, ys);
+  const bx = tight.x - BOARD_PADDING_X_PX, by = tight.y - BOARD_PADDING_Y_PX;
+  const bw = tight.w + 2 * BOARD_PADDING_X_PX, bh = tight.h + 2 * BOARD_PADDING_Y_PX;
+  for (const i of st.freeIdx) cost += fastOverlapPenalty(xs[i], ys[i], st.w[i], st.h[i], bx, by, bw, bh);
+
+  // Compactness pressure -- see AREA_PENALTY_PER_PX2's own comment. Both
+  // areas already have their bbox on hand or nearly free to get (`tight`
+  // just above, `fastTotalBBox` is the same O(n) shape over every node).
+  cost += tight.w * tight.h * AREA_PENALTY_PER_PX2;
+  const total = fastTotalBBox(st, xs, ys);
+  cost += total.w * total.h * AREA_PENALTY_PER_PX2;
+  return cost;
+}
+
+// Deterministic clean-up pass, run once annealing is done -- the soft
+// overlap penalty in fastLocalCost only ever discourages overlap, it
+// never actually *guarantees* none remains in the final state (a run
+// that happens not to have fully separated two boxes by the time the
+// schedule cools is possible in any finite-iteration annealer). Left
+// alone, that's not just cosmetic: libavoid can't find a valid orthogonal
+// corridor through two overlapping obstacles and falls back to a direct
+// (diagonal) line between whatever pins are affected -- confirmed against
+// a real diagonal connector, whose routed `d` turned out to be a bare
+// 2-point line straight from libavoid's own displayRoute(). This directly
+// separates any pair still overlapping, so what annealPlacement hands
+// back is *actually* overlap-free, not just probably so.
+const RESOLVE_OVERLAP_PASSES = 40;
+function resolveOverlaps(st, xs, ys) {
+  const margin = MIN_GAP_PX / 2;
+  for (let pass = 0; pass < RESOLVE_OVERLAP_PASSES; pass++) {
+    let moved = false;
+    for (const pool of [st.boardIdx, st.freeIdx]) {
+      for (let a = 0; a < pool.length; a++) {
+        for (let b = a + 1; b < pool.length; b++) {
+          const i = pool[a], j = pool[b];
+          const overlapX = Math.min(xs[i] + st.w[i] + margin, xs[j] + st.w[j] + margin) - Math.max(xs[i] - margin, xs[j] - margin);
+          const overlapY = Math.min(ys[i] + st.h[i] + margin, ys[j] + st.h[j] + margin) - Math.max(ys[i] - margin, ys[j] - margin);
+          if (overlapX <= 0 || overlapY <= 0) continue;
+          moved = true;
+          // Push apart along whichever axis needs the smaller shift --
+          // same "cheapest separation" any AABB-overlap resolver uses.
+          if (overlapX < overlapY) {
+            const dir = xs[i] < xs[j] ? -1 : 1;
+            xs[i] += dir * overlapX / 2;
+            xs[j] -= dir * overlapX / 2;
+          } else {
+            const dir = ys[i] < ys[j] ? -1 : 1;
+            ys[i] += dir * overlapY / 2;
+            ys[j] -= dir * overlapY / 2;
+          }
+        }
       }
-      boardW = sx + Math.max(...sidebarNodes.map(n => nodeSizePx(n).w));
     }
-    for (const [, p] of boardPos) { p.x += BOARD_PADDING_X_PX; p.y += BOARD_PADDING_Y_PX; }
-    boardW += 2 * BOARD_PADDING_X_PX;
-    boardH += 2 * BOARD_PADDING_Y_PX;
-
-    const { pos: freePos } = placeFreeItems(freeNodes, links, boardPos, boardW, boardH);
-
-    let minX = 0, minY = 0, maxX = boardW, maxY = boardH;
-    for (const [, p] of freePos) {
-      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+    // A free node overlapping the *rendered* (padded) board rectangle --
+    // only the free node moves here; the board's own internal arrangement,
+    // already resolved just above, stays exactly where that left it.
+    const tight = fastBoardBBox(st, xs, ys);
+    const bx = tight.x - BOARD_PADDING_X_PX - margin, by = tight.y - BOARD_PADDING_Y_PX - margin;
+    const bw = tight.w + 2 * (BOARD_PADDING_X_PX + margin), bh = tight.h + 2 * (BOARD_PADDING_Y_PX + margin);
+    for (const i of st.freeIdx) {
+      const overlapX = Math.min(xs[i] + st.w[i], bx + bw) - Math.max(xs[i], bx);
+      const overlapY = Math.min(ys[i] + st.h[i], by + bh) - Math.max(ys[i], by);
+      if (overlapX <= 0 || overlapY <= 0) continue;
+      moved = true;
+      if (overlapX < overlapY) {
+        const dir = (xs[i] + st.w[i] / 2) < (bx + bw / 2) ? -1 : 1;
+        xs[i] += dir * overlapX;
+      } else {
+        const dir = (ys[i] + st.h[i] / 2) < (by + bh / 2) ? -1 : 1;
+        ys[i] += dir * overlapY;
+      }
     }
-    const totalW = maxX - minX, totalH = maxY - minY;
-    const scale = Math.min(availW / totalW, availH / totalH);
-
-    const pos = new Map();
-    for (const [n, p] of boardPos) pos.set(n, { x: p.x - minX, y: p.y - minY, w: p.w, h: p.h });
-    for (const [n, p] of freePos) pos.set(n, { x: p.x - minX, y: p.y - minY, w: p.w, h: p.h });
-    const wireLength = totalWireLength(links, pos);
-
-    const candidate = { rows, flip, pos, boardOffset: { x: -minX, y: -minY }, boardW, boardH, totalW, totalH, scale, wireLength };
-    if (!best || isBetterLayout(candidate, best)) best = candidate;
+    if (!moved) break;
   }
+}
+
+// Simulated annealing over every node's (x, y), board and free alike --
+// see the section comment above for what it's minimizing and why an
+// approximate search is the right tool here. Warm-started from a cheap,
+// perfectly serviceable starting guess (board nodes in one plain
+// left-to-right line, free nodes in a line above it) rather than random
+// chaos -- the search still has full freedom to move anything anywhere
+// from there; a decent start only affects how many iterations it takes to
+// settle, not what it can settle on.
+function annealPlacement(onBoard, freeNodes, links) {
+  const rng = mulberry32(ANNEAL_SEED);
+  const st = buildFastState(onBoard, freeNodes, links);
+  const xs = new Float64Array(st.n), ys = new Float64Array(st.n);
+
+  let bx = 0;
+  for (const i of st.boardIdx) { xs[i] = bx; ys[i] = 0; bx += st.w[i] + MIN_GAP_PX; }
+  let seedBoardH = 0;
+  for (const i of st.boardIdx) seedBoardH = Math.max(seedBoardH, st.h[i]);
+  let fx = 0;
+  for (const i of st.freeIdx) { xs[i] = fx; ys[i] = -(st.h[i] + seedBoardH); fx += st.w[i] + MIN_GAP_PX; }
+
+  for (let iter = 0; iter < ANNEAL_ITERATIONS; iter++) {
+    const t = ANNEAL_START_TEMP * Math.pow(ANNEAL_END_TEMP / ANNEAL_START_TEMP, iter / ANNEAL_ITERATIONS);
+    const i = Math.floor(rng() * st.n);
+    const pool = st.isBoard[i] ? st.boardIdx : st.freeIdx;
+    const beforeXi = xs[i], beforeYi = ys[i];
+
+    let j = -1, beforeXj = 0, beforeYj = 0, moved;
+    if (pool.length < 2 || rng() < 0.5) {
+      // Jitter -- the offset itself is scaled by `t`, so it shrinks right
+      // alongside the acceptance temperature: wide exploratory jumps early,
+      // fine settling adjustments late. A fixed-size jitter this late in
+      // the schedule, at this few nodes, would keep bouncing an
+      // otherwise-settled layout back out of its own basin -- there's no
+      // large-n averaging effect here to smooth that over.
+      const before = fastLocalCost(st, xs, ys, [i]);
+      xs[i] += (rng() * 2 - 1) * t;
+      ys[i] += (rng() * 2 - 1) * t;
+      const after = fastLocalCost(st, xs, ys, [i]);
+      const delta = after - before;
+      if (delta > 0 && rng() >= Math.exp(-delta / t)) {
+        xs[i] = beforeXi; ys[i] = beforeYi;
+      }
+      continue;
+    }
+
+    j = pool[Math.floor(rng() * pool.length)];
+    if (j === i) continue;
+    beforeXj = xs[j]; beforeYj = ys[j];
+    moved = [i, j];
+    const before = fastLocalCost(st, xs, ys, moved);
+    xs[i] = beforeXj; ys[i] = beforeYj;
+    xs[j] = beforeXi; ys[j] = beforeYi;
+    const after = fastLocalCost(st, xs, ys, moved);
+    const delta = after - before;
+    if (delta > 0 && rng() >= Math.exp(-delta / t)) {
+      xs[i] = beforeXi; ys[i] = beforeYi;
+      xs[j] = beforeXj; ys[j] = beforeYj;
+    }
   }
-  return best;
+
+  resolveOverlaps(st, xs, ys);
+
+  const pos = new Map();
+  st.nodes.forEach((node, i) => pos.set(node, { x: xs[i], y: ys[i], w: st.w[i], h: st.h[i] }));
+  return pos;
+}
+
+// Solves placement once (annealPlacement, see above -- independent of
+// viewport size, since neither rule 1 nor rule 2 mentions the screen at
+// all) and only *afterward* asks how big that solved shape can render --
+// same job applyScale's callers have always done, just now decoupled from
+// the search itself rather than baked into which candidate wins (compare
+// the old isBetterLayout, which searched viewport-fit and wire length
+// together). Returns every node's absolute position (`pos`), already
+// shifted so the whole thing starts at (0, 0) -- ready for
+// renderPage/applyScale to place directly, no grid/flex layout left for
+// the browser to still have an opinion about.
+function solveLayout(onBoard, freeNodes, links, availW, availH) {
+  const pos = annealPlacement(onBoard, freeNodes, links);
+
+  const tightBBox = boardBBox(onBoard, pos);
+  const boardX = tightBBox.x - BOARD_PADDING_X_PX, boardY = tightBBox.y - BOARD_PADDING_Y_PX;
+  const boardW = tightBBox.w + 2 * BOARD_PADDING_X_PX, boardH = tightBBox.h + 2 * BOARD_PADDING_Y_PX;
+
+  let minX = boardX, minY = boardY, maxX = boardX + boardW, maxY = boardY + boardH;
+  for (const n of freeNodes) {
+    const p = pos.get(n);
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+  }
+  const totalW = maxX - minX, totalH = maxY - minY;
+  const scale = Math.min(availW / totalW, availH / totalH);
+
+  const shifted = new Map();
+  for (const [n, p] of pos) shifted.set(n, { x: p.x - minX, y: p.y - minY, w: p.w, h: p.h });
+  const wireLength = totalWireLength(links, shifted); // informational only now -- nothing left to tie-break against
+
+  return {
+    pos: shifted,
+    boardOffset: { x: boardX - minX, y: boardY - minY },
+    boardW, boardH, totalW, totalH, scale, wireLength,
+  };
 }
 
 // Renders the whole page as one absolutely-positioned canvas
-// (.board-canvas, explicit width/height set by applyScale): the rectangle
-// (.board -- the packed rows solveLayout chose, plus the sidebar, if any
-// node has one, full-height alongside them, both still plain flex layout
-// internally, unchanged) sits at solved.boardOffset, and every
-// `place="free"` node (guitar, amps, the PSU...) sits at its own real
-// (x, y) from solved.pos -- no grid, no compass buckets, nothing left for
-// the browser's own alignment rules to override. Every node's image is
-// sized at its base (scale=1) width here; main() calls applyScale
-// afterward to bring the whole canvas (position, size, gaps, fonts -- see
-// style.css) to the solved scale in one pass.
-function renderPage(solved, sidebarNodes, freeNodes) {
+// (.board-canvas, explicit width/height set by applyScale): `.board` is
+// purely the pedal rectangle's own painted background, sized/positioned
+// from solved.boardOffset/boardW/boardH -- every actual node, board and
+// `place="free"` alike, is its own absolutely-positioned box at its own
+// real (x, y) from solved.pos, direct children of the canvas. Every
+// node's image is sized at its base (scale=1) width here; main() calls
+// applyScale afterward to bring the whole canvas (position, size, gaps,
+// fonts -- see style.css) to the solved scale in one pass.
+function renderPage(solved, onBoard, freeNodes) {
   const canvas = el('div', 'board-canvas');
   canvas.dataset.baseWidth = solved.totalW;
   canvas.dataset.baseHeight = solved.totalH;
@@ -1137,27 +1112,22 @@ function renderPage(solved, sidebarNodes, freeNodes) {
   const board = el('div', 'board');
   board.dataset.baseLeft = solved.boardOffset.x;
   board.dataset.baseTop = solved.boardOffset.y;
-  // board-lower holds just the pedal-row-stack and any sidebar item, side
-  // by side -- top-aligned (not stretched/centered) so a pedal at the near
-  // end of the bottom row, right beside the sidebar, has clearance
-  // underneath for its `in` jack to route into.
-  const boardLower = el('div', 'board-lower');
-  const rowStack = el('div', 'board-rows');
-  solved.rows.forEach((rowNodes, rowIdx) => {
-    const reversed = (rowIdx % 2 === 0) !== solved.flip; // must match measureRows' identical rule exactly, or rendering would disagree with what was actually solved for
-    const rowEl = el('div', 'chain board-row' + (reversed ? ' row-reverse' : ''));
-    rowNodes.forEach(n => rowEl.append(renderNodeBox(n, nodeSizePx(n).w)));
-    rowStack.append(rowEl);
-  });
-  boardLower.append(rowStack);
-
-  if (sidebarNodes.length) {
-    const sidebar = el('div', 'board-sidebar');
-    sidebarNodes.forEach(n => sidebar.append(renderNodeBox(n, nodeSizePx(n).w)));
-    boardLower.append(sidebar);
-  }
-  board.append(boardLower);
+  board.dataset.baseWidth = solved.boardW;
+  board.dataset.baseHeight = solved.boardH;
+  // boardW/boardH are already real-world-calibrated px (same PX_PER_MM
+  // every pedal's own widthMm goes through), so this is the rectangle's
+  // actual physical footprint, not just a screen measurement.
+  const dims = el('div', 'board-dims', [document.createTextNode(formatRealSize(solved.boardW, solved.boardH))]);
+  board.append(dims);
   canvas.append(board);
+
+  for (const node of onBoard) {
+    const p = solved.pos.get(node);
+    const box = renderNodeBox(node, p.w);
+    box.dataset.baseLeft = p.x;
+    box.dataset.baseTop = p.y;
+    canvas.append(box);
+  }
 
   for (const node of freeNodes) {
     const p = solved.pos.get(node);
@@ -1312,11 +1282,18 @@ function roundedPathD(points, radius, hops = []) {
 // by shifting that bend point -- and the one before it, together, so
 // the segment between them keeps its own shape -- further from the pin,
 // borrowing the extra length from the segment one bend further back.
-const MIN_STUB_PX = 18;
+const MIN_STUB_PX = 28;
 // How much extra stub length each successive connector touching the same
 // node gets, on top of MIN_STUB_PX -- see the lane-assignment comment on
 // wireConnectors for why this is keyed per-node rather than per-kind.
-const LANE_STEP_PX = 20;
+const LANE_STEP_PX = 12;
+
+// Debug/comparison toggle: false ignores every jack's own `stub` override
+// (see the vocabulary comment up top and wireConnectors below) and always
+// falls back to the computed MIN_STUB_PX + lane-spacing minimum instead --
+// flip this to see how much a config.json's hand-tuned stubs are actually
+// buying over the default, without having to comment them all out.
+const USE_STUB_OVERRIDES = false;
 
 function ensureMinStub(points, edge, atStart, minLen) {
   if (!edge || points.length < 4) return;
@@ -1568,9 +1545,10 @@ function connectorArrows(points, kind) {
 // raising this raises the guaranteed straight run before the first turn.
 // Ceiling: must stay under half the tightest gap in the layout or two
 // pedals' buffer zones start overlapping -- currently the tightest is
-// .board-rows's own gap (see style.css), which is well under double
-// this value, so that corridor specifically may still run tighter than
-// this promises; widen that gap if wires there need to stay clear too.
+// MIN_GAP_PX (see the Board layout section), which is under double this
+// value, so two boxes landing right at that minimum may still run
+// tighter than this promises; widen MIN_GAP_PX if wires there need to
+// stay clear too.
 const SHAPE_BUFFER_PX = 18;
 // Extra clearance baked directly into each image's own obstacle
 // rectangle (see shapeInfoFor) -- a fallback for where SHAPE_BUFFER_PX's
@@ -1701,7 +1679,7 @@ function wireConnectors(Avoid, root, sections) {
   // findConnectorHops' visual hop treatment (see roundedPathD), which is
   // a separate concern: this tries to prevent crossings, that one just
   // makes the ones that do happen unambiguous.
-  router.setRoutingParameter(Avoid.RoutingParameter.crossingPenalty.value, 200);
+  router.setRoutingParameter(Avoid.RoutingParameter.crossingPenalty.value, 0.1);
   // libavoid's nudging options (nudgeOrthogonal*, performUnifyingNudging-
   // PreprocessingStep, nudgeSharedPathsWithCommonEndPoint) were used here
   // to keep parallel connectors from overlapping, but they also nudge a
@@ -1811,8 +1789,8 @@ function wireConnectors(Avoid, root, sections) {
       // absolute px count (see the vocabulary comment above) -- resolved
       // against nodeRealWidthPx here, where the actual node (not just its
       // jack fraction object) is still in scope.
-      const fromMinLen = fromFrac.stub == null ? (MIN_STUB_PX + fromLane * LANE_STEP_PX) : fromFrac.stub * nodeRealWidthPx(link.from);
-      const toMinLen = toFrac.stub == null ? (MIN_STUB_PX + toLane * LANE_STEP_PX) : toFrac.stub * nodeRealWidthPx(link.to);
+      const fromMinLen = (!USE_STUB_OVERRIDES || fromFrac.stub == null) ? (MIN_STUB_PX + fromLane * LANE_STEP_PX) : fromFrac.stub * nodeRealWidthPx(link.from);
+      const toMinLen = (!USE_STUB_OVERRIDES || toFrac.stub == null) ? (MIN_STUB_PX + toLane * LANE_STEP_PX) : toFrac.stub * nodeRealWidthPx(link.to);
       const label = `${link.from.name}.${link.fromPoint} -> ${link.to.name}.${link.toPoint}`;
       drawList.push({ connRef, kind: link.kind, insideLoop: link.insideLoop, fromEdge, toEdge, fromMinLen, toMinLen, label, fromId: link.from.id, toId: link.to.id });
     }
@@ -2925,6 +2903,13 @@ function measureLabelHeights(nodeList) {
     spacer.style.marginBottom = 'calc(0.5rem * var(--ui-scale))'; // mirrors .node-box img's own margin-bottom
     const children = [spacer, el('div', 'node-name', [document.createTextNode(node.name)])];
     if (node.owner) children.push(el('div', 'node-owner', [document.createTextNode(node.owner)]));
+    // Same hasSound condition as renderNodeBox (a board pedal with an LED
+    // -- see its own comment) -- without this, a sound-button pedal's real
+    // rendered height ran ahead of what nodeSizePx told layout to expect,
+    // by exactly the button's own height, the same "box silently renders
+    // bigger than the math assumed" problem the spacer above already
+    // exists to catch for width.
+    if (jackFraction(node, 'led') && node.place !== 'free') children.push(renderSoundButton(node));
     probe.replaceChildren(...children);
     node.labelH = probe.offsetHeight;
   }
@@ -2998,15 +2983,14 @@ async function main() {
   // export), loaded via a classic <script> tag in index.html before this
   // one, so it's already on window here.
   const ast = window.dotParser.parse(text);
-  const { nodeList, links, rowGroups } = buildModel(ast);
+  const { nodeList, links } = buildModel(ast);
   NODES_BY_ID = new Map(nodeList.map(n => [n.id, n]));
   assignPressSounds(nodeList); // fire-and-forget -- see its own comment
   assignSoundIcons(nodeList); // synchronous, must finish before renderNodeBox runs below -- see its own comment
   await preloadImages(nodeList);
   measureLabelHeights(nodeList);
 
-  const onBoard = nodeList.filter(n => n.place === 'board' && !(n.spec && n.spec.sidebar));
-  const sidebarNodes = nodeList.filter(n => n.place === 'board' && n.spec && n.spec.sidebar);
+  const onBoard = nodeList.filter(n => n.place === 'board');
   const freeNodes = nodeList.filter(n => n.place === 'free');
 
   const root = document.getElementById('app');
@@ -3027,20 +3011,36 @@ async function main() {
     TRACE_EDGES = wireConnectors(avoid, root, sections);
   }
 
-  // Rebuilds the board from scratch at whatever scale currently fits --
-  // needed (not just a rescale) because a resize can change *how many
-  // rows* or *which compass side* the solve picks, not just how big
-  // everything renders. Images are already cached from preloadImages, so
-  // this doesn't need its own waitForImages wait to know real sizes --
-  // only two animation frames to guarantee the browser has actually
-  // reflowed the freshly-appended DOM before anything reads its geometry
-  // (an image's own `load` event, if one somehow still fires here, can
-  // land a frame before that reflow).
+  // annealPlacement's own result doesn't depend on the viewport at all --
+  // neither placement rule (see the Board layout section) ever mentions
+  // the screen -- so a resize only actually needs a fresh anneal when
+  // isSmallScreen() flips (nodeRealWidthPx shrinks free nodes below that
+  // breakpoint, which does change what the optimizer is solving); every
+  // other resize just asks the *same* solved shape for a new `scale`.
+  // Without this, every resize -- not just crossing that breakpoint --
+  // would re-run the optimizer and could visibly reshuffle pedals mid-drag
+  // for no reason a plain rescale wouldn't have covered just as well.
+  let cachedSolved = null, cachedSmallScreen = null;
+
+  // Rebuilds the board from scratch at whatever scale currently fits.
+  // Images are already cached from preloadImages, so this doesn't need its
+  // own waitForImages wait to know real sizes -- only two animation frames
+  // to guarantee the browser has actually reflowed the freshly-appended
+  // DOM before anything reads its geometry (an image's own `load` event,
+  // if one somehow still fires here, can land a frame before that
+  // reflow).
   async function relayout() {
     const { availW, availH } = availableSpace();
-    const solved = solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW, availH);
+    const smallScreen = isSmallScreen();
+    if (!cachedSolved || smallScreen !== cachedSmallScreen) {
+      cachedSolved = solveLayout(onBoard, freeNodes, links, availW, availH);
+      cachedSmallScreen = smallScreen;
+    } else {
+      cachedSolved = { ...cachedSolved, scale: Math.min(availW / cachedSolved.totalW, availH / cachedSolved.totalH) };
+    }
+    const solved = cachedSolved;
     section.replaceChildren();
-    const boardGrid = renderPage(solved, sidebarNodes, freeNodes);
+    const boardGrid = renderPage(solved, onBoard, freeNodes);
     section.append(boardGrid);
     sections[0].el = boardGrid;
     applyScale(section, solved.scale);

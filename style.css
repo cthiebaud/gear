@@ -361,21 +361,6 @@ section.config {
   --ui-scale: 1;
 }
 
-.chain {
-  position: relative;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-end;
-  gap: calc(3rem * var(--ui-scale));
-  /* Rule 1 is enforced by app.js's own sizing math (plus the corrective
-     pass in relayout()), not by letting a row scroll internally if that
-     math is ever slightly off -- hidden, not auto, so a 1px miss clips
-     instead of growing a scrollbar (see html/body's own overflow:hidden
-     for why that specifically has to never happen). */
-  overflow: hidden;
-  padding: calc(2rem * var(--ui-scale)) calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
-}
-
 /* Every routed connector is one <g class="connector-group"> (see
    wireConnectors in app.js) holding a wide invisible hit path, the
    visible line, its arrow(s), and (solid kinds only) a hover bulge --
@@ -609,8 +594,8 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   stroke-width: 1.2;
 }
 
-/* Every node on the page -- the rectangle and every place="free" node
-   alike -- is positioned by an explicit left/top app.js computes (see
+/* Every node on the page -- the rectangle and every node inside or outside
+   it alike -- is positioned by an explicit left/top app.js computes (see
    solveLayout/renderPage/applyScale), not by any CSS layout algorithm's
    own opinion about alignment: a CSS Grid area's align-items:center was
    exactly what used to throw away "how far along this edge" a free node's
@@ -624,68 +609,41 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   position: relative;
 }
 
-/* The one rectangle standing in for the physical pedalboard: every real
-   pedal in the whole rig goes in here, however deep it sits in a loop or
-   split -- only place="free" nodes (guitar, amps, the PSU...) render
-   outside it, as siblings in .board-canvas, each at their own computed
-   position (see .node-box.free below). */
+/* The one rectangle standing in for the physical pedalboard -- purely a
+   painted background, sized/positioned from the tight bounding box of
+   every place="board" node's own solved position (see boardBBox/
+   solveLayout), plus its own padding baked into that box already, not
+   applied here: every actual pedal box is a sibling of this in
+   .board-canvas, at its own computed position (see .node-box below), not
+   a child flowing inside it. */
 .board {
   position: absolute;
   border: 2px solid var(--border);
   border-radius: calc(16px * var(--ui-scale));
   background: var(--board-bg);
-  padding: calc(1.75rem * var(--ui-scale)) calc(2rem * var(--ui-scale));
 }
 
-/* Row-direction: the packed pedal rows on one side, any sidebar item
-   alongside them -- deliberately a sibling of the PSU row, not a
-   container for it, so align-items here only ever sees the pedal rows. */
-.board-lower {
-  display: flex;
-  flex-direction: row;
-  /* flex-start (top), not flex-end -- StroboStomp HD sits at the near
-     (right) end of the bottom row, right beside the sidebar, with its
-     `in` jack on that same right edge partway down. Bottom-aligning the
-     sidebar would put its bulk right where that jack needs clearance to
-     route into; top-aligning leaves that space open underneath it. */
-  align-items: flex-start;
-  gap: calc(2.5rem * var(--ui-scale));
-}
-
-.board-rows {
-  display: flex;
-  flex-direction: column-reverse;
-  /* Just enough for the one cable crossing rows (Tim V3 -> P-Split) to
-     route without overlapping either row -- not sized for legibility
-     the way .chain's inter-pedal gap is. */
-  gap: calc(0.1rem * var(--ui-scale));
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.board-sidebar {
-  display: flex;
-  align-items: flex-start;
-}
-
-.board-row.row-reverse {
-  flex-direction: row-reverse;
+/* The rectangle's own real-world footprint (see formatRealSize) -- tucked
+   into its bottom-right corner, same spot a printed spec sheet would put
+   overall dimensions. z-index:0 so it never competes with a pedal box
+   (z-index:1) that happens to land right over that corner. */
+.board-dims {
+  position: absolute;
+  right: calc(0.5rem * var(--ui-scale));
+  bottom: calc(0.3rem * var(--ui-scale));
+  z-index: 0;
+  font-size: calc(0.68rem * var(--ui-scale));
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .node-box {
-  position: relative;
+  position: absolute;
   z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-}
-
-/* A place="free" node (guitar, amps, the PSU...), positioned directly
-   against .board-canvas at its own computed left/top -- see the
-   .board-canvas comment above. */
-.node-box.free {
-  position: absolute;
 }
 
 /* The product-page link (see renderNodeBox) lives on the node-name label

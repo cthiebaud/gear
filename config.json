@@ -2,8 +2,8 @@
   "telecaster": {
     "file": "telecaster.png",
     "dominantColor": "#06483a",
-    "widthMm": 150,
-    "out": { "x": 0.95, "y": 0.95 }
+    "widthMm": 400,
+    "out": { "x": 0.05, "y": 0.95 }
   },
   "strobostomp_hd": {
     "file": "peterson-strobostomp-hd.png",
@@ -122,7 +122,7 @@
   },
   "twin_reverb": {
     "file": "fender-twin-reverb-1974-cutout.png",
-    "widthMm": 240,
+    "widthMm": 280,
     "in": { "x": 0.368, "y": 0.076 },
     "led": { "x": 0.927, "y": 0.0752 }  
   },
