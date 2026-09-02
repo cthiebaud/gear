@@ -944,19 +944,52 @@ function assignEdges(freeNodes, links, resolvedPos, boardW, boardH) {
 }
 
 // Lays same-edge items out along that edge, in ideal-coordinate order,
-// nudging later ones forward just enough to clear the one before --
-// preserves each item's own ideal position exactly where nothing else
-// contends for it, same principle as packRows but along a line instead of
-// bin-packing by width.
+// preserving each item's own ideal position exactly where nothing else
+// contends for it -- same principle as packRows but along a line instead
+// of bin-packing by width. Unlike a plain greedy sweep (nudge each item
+// just far enough forward to clear the one before, never revisit), this
+// keeps the *whole line* as close as possible, in aggregate, to every
+// item's own ideal coord: a collision between two neighbors no longer
+// cascades forward through every item after them just because they
+// happened to sort later -- only the items actually contending for the
+// same stretch of the edge get pulled together, still centered on their
+// shared compromise position, while anyone else keeps their own spot.
+// Standard isotonic regression (PAVA, pool-adjacent-violators): shift
+// each item's ideal coord left by the cumulative minimum gap every
+// earlier item in the sort needs before it, so "respects every minimum
+// gap" becomes plain "shifted values are non-decreasing" -- solve that
+// with PAVA (repeatedly averaging together any adjacent pair that
+// violates order), then shift back.
 function layoutAlongEdge(items) {
   const sorted = [...items].sort((a, b) => a.coord - b.coord);
+  if (!sorted.length) return new Map();
+
+  let cumGap = 0;
+  const shifted = sorted.map((it, i) => {
+    if (i > 0) cumGap += (sorted[i - 1].size + it.size) / 2 + COMPASS_GAP_PX;
+    return it.coord - cumGap;
+  });
+
+  const blocks = []; // each: { sum, count, items } -- mean = sum / count
+  for (let i = 0; i < shifted.length; i++) {
+    let block = { sum: shifted[i], count: 1, items: [sorted[i]] };
+    while (blocks.length && blocks[blocks.length - 1].sum / blocks[blocks.length - 1].count > block.sum / block.count) {
+      const prev = blocks.pop();
+      block = { sum: prev.sum + block.sum, count: prev.count + block.count, items: prev.items.concat(block.items) };
+    }
+    blocks.push(block);
+  }
+
   const starts = new Map();
-  let cursor = -Infinity;
-  for (const it of sorted) {
-    let start = it.coord - it.size / 2;
-    if (cursor > -Infinity) start = Math.max(start, cursor);
-    starts.set(it.node, start);
-    cursor = start + it.size + COMPASS_GAP_PX;
+  cumGap = 0;
+  let prevItem = null;
+  for (const block of blocks) {
+    const mean = block.sum / block.count;
+    for (const it of block.items) {
+      if (prevItem) cumGap += (prevItem.size + it.size) / 2 + COMPASS_GAP_PX;
+      starts.set(it.node, mean + cumGap - it.size / 2);
+      prevItem = it;
+    }
   }
   return starts;
 }
@@ -981,8 +1014,17 @@ function layoutBySide(bySide, boardW, boardH) {
     const starts = layoutAlongEdge(along);
     for (const it of items) {
       const start = starts.get(it.node);
-      const x = side === 'left' ? -reserve : side === 'right' ? boardW + COMPASS_GAP_PX : start;
-      const y = side === 'above' ? -reserve : side === 'below' ? boardH + COMPASS_GAP_PX : start;
+      // 'above'/'left' sit outside the rectangle, so each item's *near*
+      // edge -- its bottom for 'above', its right for 'left' -- is what
+      // should sit flush against the gap, not a shared reserve band sized
+      // to the tallest/widest item on that side: a short pedal sharing
+      // 'above' with a tall amp used to get stranded up near the amp's own
+      // top, with dead space (and extra wire) between it and the board
+      // it's actually wired into. 'below'/'right' never had this problem
+      // -- boardH/boardW + the gap already *is* each item's own near edge,
+      // nothing shared to misalign against.
+      const x = side === 'left' ? -(it.w + COMPASS_GAP_PX) : side === 'right' ? boardW + COMPASS_GAP_PX : start;
+      const y = side === 'above' ? -(it.h + COMPASS_GAP_PX) : side === 'below' ? boardH + COMPASS_GAP_PX : start;
       pos.set(it.node, { x, y, w: it.w, h: it.h });
     }
   }

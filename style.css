@@ -837,8 +837,10 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
 
 /* A pedal's own attached-sound preview (see renderSoundButton) -- same
    reset-to-plain-icon shape as .cascade-toggle above, sized down so the
-   emoji reads as a quiet secondary control, not a fourth headline action
-   competing with the name/owner text above it. */
+   glyph reads as a quiet secondary control, not a fourth headline action
+   competing with the name/owner text above it. visibility (not display),
+   see below, is what keeps its layout space reserved while hidden -- an
+   LED-off pedal's owner line shouldn't jump around as the LED toggles. */
 .node-sound-toggle {
   display: inline-flex;
   align-items: center;
@@ -849,6 +851,15 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   background: none;
   cursor: pointer;
   color: var(--muted);
+  visibility: hidden;
+}
+
+/* .led-dot.on is toggled by both a manual click and the cascade's own
+   arrival cue (see settleLedOn) -- this button follows either one for
+   free, no JS wiring of its own needed, same :has() trick as the header's
+   power-toggle checkbox above. */
+.node-box:has(.led-dot.on) .node-sound-toggle {
+  visibility: visible;
 }
 
 .node-sound-toggle svg {
