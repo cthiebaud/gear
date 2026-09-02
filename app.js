@@ -399,11 +399,63 @@ function sizedImage(src, alt, baseWidthPx) {
   return img;
 }
 
+// Builds one <svg> from a MUSIC_ICONS entry (see assignSoundIcons, further
+// down) -- 'fill' glyphs paint solid with currentColor (optionally
+// fill-rule: evenodd, where the source icon relies on it for a punched-out
+// notehead), 'stroke' glyphs are line art, currentColor'd the same way.
+// Each icon keeps its own source viewBox/transform rather than all being
+// normalized to one, since flattening every glyph's own coordinate system
+// down to a shared box isn't worth the risk of mistranscribing one.
+function buildMusicIcon(iconDef) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', iconDef.viewBox);
+  for (const d of iconDef.paths) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    if (iconDef.transform) path.setAttribute('transform', iconDef.transform);
+    if (iconDef.mode === 'stroke') {
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', iconDef.strokeWidth);
+      if (iconDef.strokeLinecap) {
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+      }
+    } else {
+      path.setAttribute('fill', 'currentColor');
+      if (iconDef.fillRule) path.setAttribute('fill-rule', iconDef.fillRule);
+    }
+    svg.append(path);
+  }
+  return svg;
+}
+
+// A pedal's own attached sound (config.json's `eatfruit` override, or the
+// shared default -- see playArrivalSound) used to fire off the image's own
+// click, tangled up with switching its LED on. This button splits that
+// back out on its own -- a visitor can preview the sound on demand,
+// independent of the LED (see renderNodeBox's imgWrap click handler,
+// which no longer plays it). node.soundIcon is assigned once, up front,
+// by assignSoundIcons -- see its own comment for why.
+function renderSoundButton(node) {
+  const button = el('button', 'node-sound-toggle');
+  button.type = 'button';
+  button.title = `${node.name} — play sound`;
+  button.append(buildMusicIcon(node.soundIcon));
+  button.addEventListener('click', () => playArrivalSound(node.id));
+  return button;
+}
+
 // Every box gets the node's own DOT id as its HTML id -- generally useful
 // as a hook for one-off styling tweaks.
 function renderNodeBox(node, baseWidthPx) {
   const box = el('div', 'node-box');
   box.id = node.id;
+  // Set below, inside the ledFrac branch -- only a board pedal (not a
+  // place="free" node, see playArrivalSound) with an LED actually has an
+  // attached sound of its own; read back after the image block to decide
+  // whether this node gets its own renderSoundButton.
+  let hasSound = false;
   if (node.image) {
     // Without an explicit width, an absolutely-positioned box (every free
     // node, see renderPage) shrink-wraps to its widest *content* -- for a
@@ -434,6 +486,7 @@ function renderNodeBox(node, baseWidthPx) {
       led.style.top = (ledFrac.y * 100) + '%';
       imgWrap.append(led);
       node.ledEl = led; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
+      hasSound = node.place !== 'free'; // a place="free" node's arrival cue is the shared eatghost, not a sound of its own -- see playArrivalSound
 
       // The product-page link used to wrap the image, which put it in
       // direct competition with this same click for the same small
@@ -453,15 +506,10 @@ function renderNodeBox(node, baseWidthPx) {
         const isOn = node.hasLedImages ? !node.ledIsOn : led.classList.toggle('on');
         node.ledIsOn = isOn;
         setLedImage(node, isOn);
-        // Manual on: a board pedal gets the cascade's own pacman arrival cue
-        // (eatfruit) -- only lighting it, not switching it back off, is
-        // "landing here". A place="free" node (Engl, Fender, ...) skips that
-        // cue on a manual click and gets its own assigned press sound
-        // instead, same as switching it off -- the pacman cast belongs to
-        // the cascade's own signal path, not to manually flipping a switch
-        // on an amp that never "arrives" anywhere outside that cascade.
-        if (isOn && node.place !== 'free') playArrivalSound(node.id);
-        else playOffClick(node.id);
+        // Always the same manual-click cue, on or off alike -- the
+        // pedal's own attached sound (a board pedal's eatfruit clip) lives
+        // on renderSoundButton now, not here.
+        playOffClick(node.id);
       });
     } else if (!node.url) {
       // No product page and no LED to toggle -- free to repurpose the
@@ -480,6 +528,16 @@ function renderNodeBox(node, baseWidthPx) {
       // startCascade's own cascadeActive guard) and there's no way to cut
       // it short before it finishes on its own.
       img.addEventListener('click', () => toggleCascade());
+    } else if (node.id === 'pedal_power') {
+      // No LED of its own, but the power supply is the one image that
+      // makes sense as a shortcut for the header's power-toggle checkbox
+      // (see index.html) -- clicking it shows/hides every power connector
+      // on the board, exactly as clicking that checkbox would.
+      img.classList.add('node-power-toggle');
+      img.title = 'Show/hide power-supply connectors';
+      img.addEventListener('click', () => {
+        document.getElementById('power-connectors-toggle').click();
+      });
     }
 
     box.append(imgWrap);
@@ -507,6 +565,9 @@ function renderNodeBox(node, baseWidthPx) {
   box.append(nameDiv);
   if (node.owner) {
     box.append(el('div', 'node-owner', [document.createTextNode(node.owner)]));
+  }
+  if (hasSound) {
+    box.append(renderSoundButton(node));
   }
   return box;
 }
@@ -2074,6 +2135,83 @@ async function assignPressSounds(nodeList) {
   eligible.forEach((node, i) => { node.pressSoundBuffer = slices[i % slices.length]; });
 }
 
+// The svg/ folder's 8 music-*.svg icons, each one's own <path d>(s) plus
+// whatever viewBox/transform/fill-vs-stroke its source file needs to
+// reproduce it -- see buildMusicIcon. Embedded directly rather than
+// fetched at runtime, same reasoning as POWER_BOLT_D: eight fixed glyphs,
+// not user content. A couple came out of the same Sketch/Dribbble export
+// as music-1005 (nested <g transform="translate(...)">s) -- those two
+// transforms are flattened into the one `transform` below, same trick as
+// music-1005 itself used to.
+const MUSIC_ICONS = [
+  { // music-1005-svgrepo-com.svg
+    viewBox: '0 0 20 20',
+    mode: 'fill',
+    transform: 'translate(-204,-3599)',
+    paths: ['M224,3601.05129 L224,3610.55901 C224,3612.90979 222.17612,3614.95492 219.888035,3614.89646 C217.266519,3614.82877 215.248971,3612.1662 216.234285,3609.31593 C216.777356,3607.74464 218.297755,3606.71797 219.920978,3606.69233 C220.695653,3606.68105 220.976173,3606.88208 222.003416,3607.24105 L222.003416,3604.12822 C222.003416,3603.56207 221.556181,3603.10258 221.005124,3603.10258 L213.018786,3603.10258 C212.467729,3603.10258 212.020494,3603.56207 212.020494,3604.12822 L212.020494,3614.65851 C212.020494,3617.02057 210.179644,3619.07289 207.881575,3618.99801 C205.681339,3618.92622 203.914362,3617.02775 204.00321,3614.73031 C204.090061,3612.51594 205.989811,3610.84209 208.147121,3610.79081 C209.166377,3610.76619 209.352059,3610.92619 210.02391,3611.34363 L210.02391,3601.05129 C210.02391,3599.91795 210.91838,3599 212.020494,3599 L222.003416,3599 C223.106529,3599 224,3599.91795 224,3601.05129'],
+  },
+  { // music-995-svgrepo-com.svg
+    viewBox: '0 0 20 20',
+    mode: 'fill',
+    fillRule: 'evenodd',
+    transform: 'translate(-204,-3639)',
+    paths: ['M211.987988,3643 L221.997998,3643 L221.997998,3641 L211.987988,3641 L211.987988,3643 Z M209.985986,3639 L209.985986,3651.535 C208.984985,3651.195 208.726727,3651 207.997998,3651 C205.785786,3651 204,3652.791 204,3655 C204,3657.209 205.782783,3659 207.993994,3659 C210.205205,3659 211.987988,3657.209 211.987988,3655 L211.987988,3645 L221.997998,3645 L221.997998,3651.535 C220.996997,3651.195 220.738739,3651 220.01001,3651 C217.797798,3651 216.012012,3652.791 216.012012,3655 C216.012012,3657.209 217.794795,3659 220.006006,3659 C222.217217,3659 224,3657.209 224,3655 L224,3639 L209.985986,3639 Z'],
+  },
+  { // music-note-01-svgrepo-com.svg
+    viewBox: '0 0 24 24',
+    mode: 'stroke',
+    strokeWidth: 2,
+    strokeLinecap: true,
+    paths: ['M9 18V6.35537C9 5.87383 9 5.63306 9.0876 5.43778C9.16482 5.26565 9.28917 5.11887 9.44627 5.0144C9.62449 4.89588 9.86198 4.8563 10.337 4.77714L19.137 3.31047C19.7779 3.20364 20.0984 3.15023 20.3482 3.243C20.5674 3.32441 20.7511 3.48005 20.8674 3.68286C21 3.91398 21 4.23889 21 4.8887V16M9 18C9 19.6568 7.65685 21 6 21C4.34315 21 3 19.6568 3 18C3 16.3431 4.34315 15 6 15C7.65685 15 9 16.3431 9 18ZM21 16C21 17.6568 19.6569 19 18 19C16.3431 19 15 17.6568 15 16C15 14.3431 16.3431 13 18 13C19.6569 13 21 14.3431 21 16Z'],
+  },
+  { // music-note-double-svgrepo-com.svg
+    viewBox: '0 0 24 24',
+    mode: 'fill',
+    fillRule: 'evenodd',
+    paths: ['M19.4506 1.22841C20.7282 0.863369 22 1.8227 22 3.15145V16C22 18.2091 20.2091 20 18 20C15.7909 20 14 18.2091 14 16C14 13.7909 15.7909 12 18 12C18.7286 12 19.4117 12.1948 20 12.5351V7.07142L10 9.92857V19C10 21.2091 8.20914 23 6 23C3.79086 23 2 21.2091 2 19C2 16.7909 3.79086 15 6 15C6.72857 15 7.41165 15.1948 8 15.5351V6.0086C8 5.11564 8.59196 4.33086 9.45056 4.08555L19.4506 1.22841ZM18.7669 3.36991C19.3815 3.18555 20 3.64573 20 4.28734C20 4.71033 19.7225 5.08323 19.3174 5.20477L11.2331 7.63008C10.6185 7.81444 10 7.35426 10 6.71265C10 6.28966 10.2775 5.91676 10.6826 5.79522L18.7669 3.36991ZM16.0167 16C16.0167 17.0953 16.9047 17.9833 18 17.9833C19.0954 17.9833 19.9833 17.0953 19.9833 16C19.9833 14.9046 19.0954 14.0167 18 14.0167C16.9047 14.0167 16.0167 14.9046 16.0167 16ZM4.0167 19C4.0167 20.0953 4.90465 20.9833 6 20.9833C7.09535 20.9833 7.9833 20.0953 7.9833 19C7.9833 17.9046 7.09535 17.0167 6 17.0167C4.90465 17.0167 4.0167 17.9046 4.0167 19Z'],
+  },
+  { // music-note-svgrepo-com (1).svg
+    viewBox: '-4.5 0 32 32',
+    mode: 'fill',
+    transform: 'translate(-470,-620)',
+    paths: ['M492.293,627.364 L485.636,620.707 C485.245,620.316 484.634,620.339 484.222,620.707 C483.925,620.973 484,621.453 484,622 L484,639.327 C481.781,637.683 478.119,637.68 474.876,639.553 C470.844,641.88 468.991,646.219 470.736,649.243 C472.482,652.267 477.166,652.831 481.198,650.503 C484.33,648.695 486.138,645.676 485.976,643 L486,643 L486,623.971 L490.879,628.778 C491.27,629.169 491.902,629.169 492.293,628.778 C492.684,628.388 492.684,627.755 492.293,627.364'],
+  },
+  { // music-note-svgrepo-com (3).svg
+    viewBox: '0 0 24 24',
+    mode: 'fill',
+    fillRule: 'evenodd',
+    paths: ['M18.6731 3.66678C18.0356 3.78024 17.1965 4.05792 15.9723 4.466L11.9723 5.79934C11.2959 6.02481 10.8487 6.17507 10.5192 6.32833C10.2072 6.47345 10.0724 6.59025 9.98595 6.71015C9.89953 6.83005 9.83138 6.99494 9.79235 7.33679C9.75113 7.69779 9.75 8.16956 9.75 8.88256V10.959L20.25 7.45895C20.2499 6.21736 20.2459 5.35983 20.1541 4.7342C20.0627 4.11097 19.906 3.88657 19.7309 3.76032C19.5557 3.63407 19.2933 3.55641 18.6731 3.66678ZM21.7402 5.99952C21.7279 5.43502 21.7003 4.93995 21.6382 4.51655C21.522 3.72389 21.2634 3.01586 20.608 2.54346C19.9525 2.07106 19.1991 2.04961 18.4103 2.18999C17.6516 2.32502 16.7078 2.63965 15.5559 3.02365L11.4584 4.38947C10.8321 4.59824 10.3027 4.77466 9.88651 4.96829C9.44407 5.17412 9.06018 5.42921 8.76908 5.83309C8.47799 6.23696 8.35738 6.68182 8.30203 7.16664C8.27376 7.41423 8.26085 7.69183 8.25495 7.99952H8.25V8.7587C8.25 8.78594 8.25 8.81336 8.25 8.84095L8.25 15.9992C7.62325 15.5285 6.8442 15.2495 6 15.2495C3.92893 15.2495 2.25 16.9285 2.25 18.9995C2.25 21.0706 3.92893 22.7495 6 22.7495C8.07107 22.7495 9.75 21.0706 9.75 18.9995V12.5401L20.25 9.04009V13.9992C19.6233 13.5285 18.8442 13.2495 18 13.2495C15.9289 13.2495 14.25 14.9285 14.25 16.9995C14.25 19.0706 15.9289 20.7495 18 20.7495C20.0711 20.7495 21.75 19.0706 21.75 16.9995V7.4881C21.75 7.45241 21.75 7.41692 21.75 7.38161V5.99952H21.7402ZM20.25 16.9995C20.25 15.7569 19.2426 14.7495 18 14.7495C16.7574 14.7495 15.75 15.7569 15.75 16.9995C15.75 18.2422 16.7574 19.2495 18 19.2495C19.2426 19.2495 20.25 18.2422 20.25 16.9995ZM8.25 18.9995C8.25 17.7569 7.24264 16.7495 6 16.7495C4.75736 16.7495 3.75 17.7569 3.75 18.9995C3.75 20.2422 4.75736 21.2495 6 21.2495C7.24264 21.2495 8.25 20.2422 8.25 18.9995Z'],
+  },
+  { // music-note-svgrepo-com copy.svg
+    viewBox: '0 0 24 24',
+    mode: 'stroke',
+    strokeWidth: 1.91,
+    paths: [
+      'M11.4,21c-1.68,1.7-4.08,2.06-5.32.8s-.9-3.63.8-5.32,4.07-2,5.32-.8S13.1,19.31,11.4,21Z',
+      'M18.67,11v-1C18.67,5.31,13,6.26,13,.54L13,18',
+    ],
+  },
+  { // music-note-svgrepo-com.svg
+    viewBox: '0 0 24 24',
+    mode: 'fill',
+    paths: ['M10.0909 11.9629L19.3636 8.63087V14.1707C18.8126 13.8538 18.1574 13.67 17.4545 13.67C15.4964 13.67 13.9091 15.096 13.9091 16.855C13.9091 18.614 15.4964 20.04 17.4545 20.04C19.4126 20.04 21 18.614 21 16.855C21 16.855 21 16.8551 21 16.855L21 7.49236C21 6.37238 21 5.4331 20.9123 4.68472C20.8999 4.57895 20.8852 4.4738 20.869 4.37569C20.7845 3.86441 20.6352 3.38745 20.347 2.98917C20.2028 2.79002 20.024 2.61055 19.8012 2.45628C19.7594 2.42736 19.716 2.39932 19.6711 2.3722L19.6621 2.36679C18.8906 1.90553 18.0233 1.93852 17.1298 2.14305C16.2657 2.34086 15.1944 2.74368 13.8808 3.23763L11.5963 4.09656C10.9806 4.32806 10.4589 4.52419 10.0494 4.72734C9.61376 4.94348 9.23849 5.1984 8.95707 5.57828C8.67564 5.95817 8.55876 6.36756 8.50501 6.81203C8.4545 7.22978 8.45452 7.7378 8.45455 8.33743V16.1307C7.90347 15.8138 7.24835 15.63 6.54545 15.63C4.58735 15.63 3 17.056 3 18.815C3 20.574 4.58735 22 6.54545 22C8.50355 22 10.0909 20.574 10.0909 18.815C10.0909 18.815 10.0909 18.8151 10.0909 18.815L10.0909 11.9629Z'],
+  },
+];
+
+// One randomly-assigned glyph per pedal with its own attached sound (see
+// renderSoundButton) -- MUSIC_ICONS has exactly 8 entries for today's 8
+// eligible pedals, so no two ear buttons look alike, same idea as
+// assignPressSounds' one-clip-per-node shuffle just above. Unlike that
+// one, this runs synchronously (no audio to decode first) and must finish
+// before renderNodeBox runs -- called right alongside it from main(), not
+// fire-and-forget. More eligible pedals than icons would mean some share
+// one; there currently aren't.
+function assignSoundIcons(nodeList) {
+  const eligible = nodeList.filter(n => n.spec && n.spec.led && n.place !== 'free');
+  const icons = shuffle(MUSIC_ICONS.slice());
+  eligible.forEach((node, i) => { node.soundIcon = icons[i % icons.length]; });
+}
+
 // A hard stop/start on a raw AudioBufferSourceNode cuts the waveform at
 // whatever sample it happens to be sitting on -- almost never zero -- and
 // that instantaneous jump is exactly what a "click" *is* (a speaker being
@@ -2270,11 +2408,13 @@ function stopLedBlink(nodeId) {
 }
 
 // Every node's LED, forced off -- blanks the board back to its start-of-run
-// look. Used only by startCascade, so a repeat run's "everything lights up
+// look. Used by startCascade, so a repeat run's "everything lights up
 // along the way" progression is visible again, rather than starting from
-// last run's already-lit board. NOT used by a manual stop (see
-// cancelBlinkingLeds below) -- a cut-short run should keep showing
-// whatever it actually got through, not erase that progress.
+// last run's already-lit board; and by initPowerToggle, since no power
+// means no device on the board can have a lit LED, pedals and free nodes
+// alike. NOT used by a manual stop (see cancelBlinkingLeds below) -- a
+// cut-short run should keep showing whatever it actually got through, not
+// erase that progress.
 function resetAllLeds() {
   for (const node of NODES_BY_ID.values()) stopLedBlink(node.id);
 }
@@ -2819,6 +2959,7 @@ async function main() {
   const { nodeList, links, rowGroups } = buildModel(ast);
   NODES_BY_ID = new Map(nodeList.map(n => [n.id, n]));
   assignPressSounds(nodeList); // fire-and-forget -- see its own comment
+  assignSoundIcons(nodeList); // synchronous, must finish before renderNodeBox runs below -- see its own comment
   await preloadImages(nodeList);
   measureLabelHeights(nodeList);
 
@@ -2967,6 +3108,24 @@ function initTheme() {
   });
 }
 initTheme();
+
+// The header's power-toggle checkbox (see index.html) already hides the
+// power wires on its own, purely in CSS -- but a device's LED isn't a wire,
+// so nothing there ever touches it. Flipping power off is the one direction
+// that needs JS: every node's LED goes dark, board and free nodes alike
+// (resetAllLeds doesn't distinguish between them), same as if the whole
+// board had just lost power. Flipping it back on deliberately does nothing
+// here -- relighting LEDs on its own would be inventing a "cascade
+// finished" moment nobody asked for; a real run (or a manual per-node
+// click) is the only way an LED gets lit.
+function initPowerToggle() {
+  const toggle = document.getElementById('power-connectors-toggle');
+  if (!toggle) return;
+  toggle.addEventListener('change', () => {
+    if (!toggle.checked) resetAllLeds();
+  });
+}
+initPowerToggle();
 
 // The header's third control (see index.html) -- a plain button, not a
 // checkbox like the other two, since it doesn't hold a setting of its

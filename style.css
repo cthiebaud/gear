@@ -767,6 +767,12 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   cursor: pointer;
 }
 
+/* The power supply's own image -- clicking it mirrors the header's
+   power-toggle checkbox (see renderNodeBox). */
+.node-box img.node-power-toggle {
+  cursor: pointer;
+}
+
 /* 120x90 matches DEFAULT_WIDTH_PX and the no-image aspect fallback in
    app.js's nodeAspect -- keep the three in sync. */
 .node-box.no-image {
@@ -811,5 +817,30 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   font-size: calc(0.68rem * var(--ui-scale));
   color: var(--muted);
   margin-top: calc(0.15rem * var(--ui-scale));
+}
+
+/* A pedal's own attached-sound preview (see renderSoundButton) -- same
+   reset-to-plain-icon shape as .cascade-toggle above, sized down so the
+   emoji reads as a quiet secondary control, not a fourth headline action
+   competing with the name/owner text above it. */
+.node-sound-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: calc(0.25rem * var(--ui-scale)) 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.node-sound-toggle svg {
+  width: calc(14px * var(--ui-scale));
+  height: calc(14px * var(--ui-scale));
+}
+
+.node-sound-toggle:hover {
+  color: var(--text);
 }
 
