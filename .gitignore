@@ -22,3 +22,5 @@ Gemfile.lock
 photos/
 Screen*
 monster-track*
+
+__pycache__/
