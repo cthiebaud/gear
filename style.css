@@ -126,6 +126,22 @@ header h1 {
   gap: 0.5rem;
 }
 
+/* svg/GitHub_Invertocat_Black.svg's own <path d>, inlined the same way the
+   other header controls' icons are -- currentColor + var(--muted) keeps it
+   visually consistent with them rather than showing its own fixed black. */
+.github-link {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.github-link svg path {
+  fill: currentColor;
+}
+
+.github-link:hover {
+  color: var(--text);
+}
+
 /* The checkbox (hidden, see index.html) only exists to hold :checked
    state; the label's <svg> -- toggled between plain-bolt and
    struck-through by the sibling rules below -- is the only thing shown. */
