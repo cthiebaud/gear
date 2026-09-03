@@ -481,11 +481,20 @@ function renderNodeBox(node, baseWidthPx) {
 
     const ledFrac = jackFraction(node, 'led');
     if (ledFrac) {
-      const led = el('div', 'led-dot');
-      led.style.left = (ledFrac.x * 100) + '%';
-      led.style.top = (ledFrac.y * 100) + '%';
-      imgWrap.append(led);
-      node.ledEl = led; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
+      // config.json's `led` is a single {x,y} for the common one-LED case,
+      // or an array of them for a node with more than one (never more than
+      // two so far) -- normalized to an array here so every consumer below
+      // (and startLedBlink/stopLedBlink/settleLedOn, keyed off node.ledEls
+      // via NODES_BY_ID) only has one shape to deal with.
+      const ledSpecs = Array.isArray(ledFrac) ? ledFrac : [ledFrac];
+      const ledEls = ledSpecs.map(frac => {
+        const led = el('div', 'led-dot');
+        led.style.left = (frac.x * 100) + '%';
+        led.style.top = (frac.y * 100) + '%';
+        imgWrap.append(led);
+        return led;
+      });
+      node.ledEls = ledEls; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
       // playArrivalSound already picks eatfruit vs. eatghost per node.place --
       // no button at all for a node that's opted all the way out of one
       // (see soundExplicitlyOff), rather than one that previews silence.
@@ -496,16 +505,17 @@ function renderNodeBox(node, baseWidthPx) {
       // target -- landing on the tiny LED dot instead of the link (or
       // vice versa) was fiddly enough to be annoying. The link has moved
       // to the node-name label below instead, so the whole image is free
-      // to mean just one thing: click anywhere on it -- the led-dot
-      // included, it's a plain child of imgWrap so the click still
-      // bubbles up here -- toggles this LED.
+      // to mean just one thing: click anywhere on it -- the led-dot(s)
+      // included, they're plain children of imgWrap so the click still
+      // bubbles up here -- toggles every LED on this node together.
       img.classList.add('led-toggle');
       img.title = `${node.name} — toggle LED`;
       imgWrap.addEventListener('click', () => {
         // A hasLedImages node's -on photo already shows it lit for real,
         // so the synthetic dot glow this class also draws is redundant on
         // top of it -- harmless doubling, not worth a special case.
-        const isOn = led.classList.toggle('on');
+        const isOn = !ledEls[0].classList.contains('on');
+        ledEls.forEach(led => led.classList.toggle('on', isOn));
         node.ledIsOn = isOn;
         setLedImage(node, isOn);
         // Always the same manual-click cue, on or off alike -- the
@@ -2502,13 +2512,13 @@ function soundExplicitlyOff(node) {
 // LED, nothing for a board node with neither.
 function playArrivalSound(nodeId) {
   if (NODES_BY_ID.get(nodeId)?.place === 'free') playEatGhost(nodeId);
-  else if (ledElFor(nodeId)) playEatFruit(nodeId);
+  else if (ledElsFor(nodeId)?.length) playEatFruit(nodeId);
 }
 
 // id -> node object, so fireTraceEdge (below) can find a just-arrived-at
-// node's LED without threading node references through the whole
+// node's LED(s) without threading node references through the whole
 // TRACE_EDGES/traceFrom cascade. Set once in main() -- unlike TRACE_EDGES
-// this doesn't need rebuilding on resize: node objects (and node.ledEl,
+// this doesn't need rebuilding on resize: node objects (and node.ledEls,
 // kept current by renderNodeBox on every relayout) are the same ones the
 // whole run, only their DOM/geometry changes.
 let NODES_BY_ID = new Map();
@@ -2520,8 +2530,8 @@ let NODES_BY_ID = new Map();
 // below only bounds the fixed-timeout case.
 const LED_BLINK_DURATION_MS = 800; // 5 full on/off cycles before settling off
 
-function ledElFor(nodeId) {
-  return NODES_BY_ID.get(nodeId)?.ledEl;
+function ledElsFor(nodeId) {
+  return NODES_BY_ID.get(nodeId)?.ledEls;
 }
 
 // Swaps a node's own photo between its calibrated -off/-on variants (a
@@ -2545,9 +2555,9 @@ function setLedImage(node, on) {
 // *on* photo, if this node has one (see setLedImage) -- same photo
 // settleLedOn's permanently-lit end state switches to and stays on.
 function startLedBlink(nodeId) {
-  const led = ledElFor(nodeId);
-  if (!led) return;
-  led.classList.add('blinking');
+  const leds = ledElsFor(nodeId);
+  if (!leds?.length) return;
+  leds.forEach(led => led.classList.add('blinking'));
   setLedImage(NODES_BY_ID.get(nodeId), true);
 }
 
@@ -2557,7 +2567,7 @@ function startLedBlink(nodeId) {
 // arrival cue running to completion (see settleLedOn below for that case).
 function stopLedBlink(nodeId) {
   const node = NODES_BY_ID.get(nodeId);
-  node?.ledEl?.classList.remove('blinking', 'on');
+  node?.ledEls?.forEach(led => led.classList.remove('blinking', 'on'));
   if (node) node.ledIsOn = false;
   setLedImage(node, false);
 }
@@ -2585,7 +2595,7 @@ function resetAllLeds() {
 // left stuck showing 'blinking' forever instead of settling anywhere.
 function cancelBlinkingLeds() {
   for (const node of NODES_BY_ID.values()) {
-    if (node.ledEl?.classList.contains('blinking')) stopLedBlink(node.id);
+    if (node.ledEls?.some(led => led.classList.contains('blinking'))) stopLedBlink(node.id);
   }
 }
 
@@ -2600,14 +2610,14 @@ function cancelBlinkingLeds() {
 function settleLedOn(nodeId) {
   if (!cascadeActive) return;
   const node = NODES_BY_ID.get(nodeId);
-  const led = node?.ledEl;
-  if (!led) return;
-  led.classList.remove('blinking');
+  const leds = node?.ledEls;
+  if (!leds?.length) return;
+  leds.forEach(led => led.classList.remove('blinking'));
   node.ledIsOn = true;
   // A hasLedImages node's own -on photo already shows it lit for real, so
   // this synthetic dot glow just doubles it up -- harmless, not worth a
   // special case (see the manual-toggle handler above).
-  led.classList.add('on');
+  leds.forEach(led => led.classList.add('on'));
   setLedImage(node, true);
 }
 
@@ -2866,7 +2876,7 @@ function toggleCascade() {
 // and traceFrom moves on right after.
 async function blinkLed(nodeId) {
   playArrivalSound(nodeId);
-  if (!ledElFor(nodeId)) return;
+  if (!ledElsFor(nodeId)?.length) return;
   startLedBlink(nodeId);
   await Promise.race([
     new Promise(res => setTimeout(res, LED_BLINK_DURATION_MS)),

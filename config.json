@@ -43,7 +43,7 @@
     "loopOut": { "x": 0.671, "y": 0 },
     "loopIn": { "x": 0.343, "y": 0 },
     "power": { "x": 0.505, "y": 0.022 },
-    "led": { "x": 0.169, "y": 0.637 },
+    "led": [{ "x": 0.167, "y": 0.64 }, { "x": 0.829, "y": 0.64 }],
     "eatfruit": "pacman_eatfruit-tim_v3-edited.mp3"
   },
   "brig": {
@@ -74,7 +74,7 @@
     "out": { "x": 0.679, "y": 0 },
     "power": { "x": 0.1, "y": 0.015 },
     "exp": { "x": 0.312, "y": 0 },
-    "led": { "x": 0.8, "y": 0.667 },
+    "led": [{ "x": 0.8, "y": 0.667 }, { "x": 0.2, "y": 0.667 }],
     "eatfruit": "pacman_eatfruit-capistan-edited.mp3"
   },
   "bluesky": {
@@ -84,7 +84,7 @@
     "in": { "x": 0.852, "y": 0 },
     "out": { "x": 0.483, "y": 0 },
     "power": { "x": 0.1, "y": 0.015 },
-    "led": { "x": 0.8, "y": 0.667 },
+    "led": [{ "x": 0.8, "y": 0.667 }, { "x": 0.2, "y": 0.667 }],
     "eatfruit": "pacman_eatfruit-bluesky.mp3"
   },
   "psplit": {

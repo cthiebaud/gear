@@ -33,6 +33,7 @@
     .dot.power { background: #369; }
     .dot.exp { background: #0aa; }
     .dot.led { background: #e0e; }
+    .dot.led2 { background: #808; }
     .status { font-size: 0.9rem; margin-top: 0.5rem; }
     .status .next { font-weight: 600; }
     .legend { font-size: 0.8rem; color: #555; }
@@ -58,6 +59,7 @@
     <span><i style="background:#369"></i>power</span>
     <span><i style="background:#0aa"></i>exp</span>
     <span><i style="background:#e0e"></i>led</span>
+    <span><i style="background:#808"></i>led (2nd, if any)</span>
   </div>
 
   <div id="pedals"></div>
@@ -69,16 +71,21 @@
 // key: just a human-readable label for the output box below -- paste
 // results back and they get matched to the right PEDAL_SPECS entry by
 // hand, this file doesn't read app.js's ids directly.
+//
+// A node with two LEDs (never more than two) lists 'led' and 'led2' in
+// its own points -- see updateOutput below, which folds that pair into
+// config.json's array form (`"led": [{...}, {...}]`) rather than emitting
+// them as two separate keys.
 const ITEMS = [
   { key: 'dvp5', label: 'Dunlop DVP5 Volume (X) 8', file: 'dunlop-volume-x-8-cutout.png', points: ['exp'] },
   { key: 'strobostomp hd', label: 'Peterson StroboStomp HD', file: 'peterson-strobostomp-hd.png', points: ['in', 'out', 'power', 'led'] },
   { key: '1176', label: 'UA 1176 Studio Compressor', file: 'ua-1176.png', points: ['in', 'out', 'power', 'led'] },
   { key: 'centavo', label: 'Warm Audio Centavo Gold', file: 'warm-audio-centavo.png', points: ['in', 'out', 'power', 'led'] },
-  { key: 'tim v3', label: 'Paul Cochrane Tim V3', file: 'paul-c-tim-v3.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power', 'led'] },
+  { key: 'tim v3', label: 'Paul Cochrane Tim V3', file: 'paul-c-tim-v3.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power', 'led', 'led2'] },
   { key: 'brig', label: 'Strymon Brig', file: 'strymon-brig.png', points: ['in', 'out', 'power', 'led'] },
   { key: 'electric blue chorus', label: 'Mad Professor Electric Blue Chorus', file: 'mad-professor-electric-blue.png', points: ['in', 'out', 'power', 'led'] },
-  { key: 'capistan', label: 'Strymon El Capistan', file: 'strymon-elcap-v2.png', points: ['in', 'out', 'power', 'exp', 'led'] },
-  { key: 'bluesky', label: 'Strymon BlueSky', file: 'strymon-bluesky.png', points: ['in', 'out', 'power', 'led'] },
+  { key: 'capistan', label: 'Strymon El Capistan', file: 'strymon-elcap-v2.png', points: ['in', 'out', 'power', 'exp', 'led', 'led2'] },
+  { key: 'bluesky', label: 'Strymon BlueSky', file: 'strymon-bluesky.png', points: ['in', 'out', 'power', 'led', 'led2'] },
   // Real hardware: 1 input, 2 outputs (DIR + ISO), fully passive -- no power jack, no LED.
   { key: 'p-split', label: 'Lehle P-Split III', file: 'lehle-p-split-iii.png', points: ['in', 'outDir', 'outIso'] },
   { key: 'simplifier x', label: 'DSM & Humboldt Simplifier X', file: 'dsm-simplifier-x.png', points: ['in', 'out', 'loopOut', 'loopIn', 'power', 'led'] },
@@ -161,9 +168,16 @@ function updateOutput() {
   for (const item of ITEMS) {
     const rec = results[item.key];
     if (!rec) continue;
+    // 'led2' never gets its own output line -- when present, it folds
+    // into 'led's line as config.json's two-LED array form instead.
     const parts = item.points
-      .filter(p => rec[p])
-      .map(p => `    "${p}": { "x": ${rec[p].x}, "y": ${rec[p].y} }`);
+      .filter(p => p !== 'led2' && rec[p])
+      .map(p => {
+        if (p === 'led' && rec.led2) {
+          return `    "led": [{ "x": ${rec.led.x}, "y": ${rec.led.y} }, { "x": ${rec.led2.x}, "y": ${rec.led2.y} }]`;
+        }
+        return `    "${p}": { "x": ${rec[p].x}, "y": ${rec[p].y} }`;
+      });
     if (parts.length) blocks.push(`  "${item.key}": {\n` + parts.join(',\n') + '\n  },');
   }
   document.getElementById('output').value = blocks.join('\n');
