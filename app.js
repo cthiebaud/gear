@@ -515,18 +515,27 @@ function renderNodeBox(node, baseWidthPx) {
       // click instead, tracing the signal path outward from here (see
       // traceFrom). Every node happens to have a url except the guitar,
       // so this is guitar-only today without hardcoding its id -- a
-      // future url-less, LED-less node would just become another valid
-      // starting point, a reasonable reading of "nothing else to do with
-      // a click here" rather than a special case to guard against.
-      img.classList.add('node-traceable');
-      img.title = `${node.name} — trace signal path (tap again to stop)`;
-      TRACEABLE_NODE_ID = node.id; // lets the spacebar shortcut (see toggleCascade) start from here too
-      // toggleCascade, not startCascade -- mobile has no spacebar, so
-      // this tap is the only stop control touch users get. Without this,
-      // a tap while the cascade is already running just no-ops (see
-      // startCascade's own cascadeActive guard) and there's no way to cut
-      // it short before it finishes on its own.
-      img.addEventListener('click', () => toggleCascade());
+      // future url-less, LED-less node (an uncalibrated free node still
+      // waiting on its real url/led, say) would otherwise just become
+      // another node matching this same branch. TRACEABLE_NODE_ID is a
+      // single module-level slot though, not a list, so without the
+      // guard below that second match wouldn't add a starting point, it'd
+      // silently steal the guitar's: renderNodeBox runs in nodeList order,
+      // so whichever such node renders *last* would win, and the guitar's
+      // own click would end up starting the cascade somewhere else
+      // entirely (see startCascade's use of this variable). First match
+      // wins instead -- the guitar, being declared first in config.dot.
+      if (TRACEABLE_NODE_ID == null) {
+        img.classList.add('node-traceable');
+        img.title = `${node.name} — trace signal path (tap again to stop)`;
+        TRACEABLE_NODE_ID = node.id; // lets the spacebar shortcut (see toggleCascade) start from here too
+        // toggleCascade, not startCascade -- mobile has no spacebar, so
+        // this tap is the only stop control touch users get. Without this,
+        // a tap while the cascade is already running just no-ops (see
+        // startCascade's own cascadeActive guard) and there's no way to cut
+        // it short before it finishes on its own.
+        img.addEventListener('click', () => toggleCascade());
+      }
     } else if (node.id === 'pedal_power') {
       // No LED of its own, but the power supply is the one image that
       // makes sense as a shortcut for the header's power-toggle checkbox
