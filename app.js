@@ -486,7 +486,10 @@ function renderNodeBox(node, baseWidthPx) {
       led.style.top = (ledFrac.y * 100) + '%';
       imgWrap.append(led);
       node.ledEl = led; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
-      hasSound = true; // playArrivalSound already picks eatfruit vs. eatghost per node.place
+      // playArrivalSound already picks eatfruit vs. eatghost per node.place --
+      // no button at all for a node that's opted all the way out of one
+      // (see soundExplicitlyOff), rather than one that previews silence.
+      hasSound = !soundExplicitlyOff(node);
 
       // The product-page link used to wrap the image, which put it in
       // direct competition with this same click for the same small
@@ -2098,9 +2101,14 @@ const DEFAULT_EATGHOST_URL = '/sounds/pacman_eatghost.mp3';
 // below: config.json's `eatghost` (a filename under /sounds/) picks a
 // free node's own clip; nodes without an override share one cached Audio
 // for DEFAULT_EATGHOST_URL instead of each getting a redundant copy.
+// `eatghost: false` opts a node out of an arrival sound entirely -- not
+// the same as omitting the key, which still falls back to the shared
+// default -- so this returns null rather than DEFAULT_EATGHOST_URL's
+// Audio for that one case; playEatGhost below just no-ops on null.
 const eatGhostAudioByUrl = new Map();
 function eatGhostAudioFor(nodeId) {
   const spec = NODES_BY_ID.get(nodeId)?.spec;
+  if (spec?.eatghost === false) return null;
   const url = spec?.eatghost ? `/sounds/${spec.eatghost}` : DEFAULT_EATGHOST_URL;
   let audio = eatGhostAudioByUrl.get(url);
   if (!audio) {
@@ -2118,6 +2126,7 @@ function eatGhostAudioFor(nodeId) {
 // playing) still reuses the one cached element.
 function playEatGhost(nodeId) {
   const audio = eatGhostAudioFor(nodeId);
+  if (!audio) return;
   const instance = audio.paused ? audio : audio.cloneNode();
   instance.currentTime = 0;
   instance.play().catch(() => {});
@@ -2336,7 +2345,7 @@ const MUSIC_ICONS = [
 // to decode first) and must finish before renderNodeBox runs -- called
 // right alongside it from main(), not fire-and-forget.
 function assignSoundIcons(nodeList) {
-  const eligible = nodeList.filter(n => n.spec && n.spec.led);
+  const eligible = nodeList.filter(n => n.spec && n.spec.led && !soundExplicitlyOff(n));
   const icons = shuffle(MUSIC_ICONS.slice());
   eligible.forEach((node, i) => { node.soundIcon = icons[i % icons.length]; });
 }
@@ -2438,10 +2447,14 @@ function stopChompSource() {
 // DEFAULT_EATFRUIT_URL instead of each getting their own redundant copy
 // of the same clip. Keyed by URL rather than node id so that sharing
 // falls out for free either way -- no separate "has an override or not"
-// branch to keep in sync.
+// branch to keep in sync. `eatfruit: false` is the one exception -- opts
+// a pedal out of an arrival sound entirely rather than picking a clip, so
+// it's checked before any of that and returns null; playEatFruit below
+// just no-ops on null (same convention as eatGhostAudioFor above).
 const eatFruitAudioByUrl = new Map();
 function eatFruitAudioFor(nodeId) {
   const spec = NODES_BY_ID.get(nodeId)?.spec;
+  if (spec?.eatfruit === false) return null;
   const url = spec?.eatfruit ? `/sounds/${spec.eatfruit}` : DEFAULT_EATFRUIT_URL;
   let audio = eatFruitAudioByUrl.get(url);
   if (!audio) {
@@ -2460,10 +2473,23 @@ function eatFruitAudioFor(nodeId) {
 // so repeat triggers don't pile up new Audio objects for no reason.
 function playEatFruit(nodeId) {
   const audio = eatFruitAudioFor(nodeId);
+  if (!audio) return;
   const instance = audio.paused ? audio : audio.cloneNode();
   instance.currentTime = 0;
   instance.play().catch(() => {});
   trackOneShot(instance);
+}
+
+// True when this node's own arrival-cue override -- eatghost for a
+// place="free" node, eatfruit otherwise, same split playArrivalSound
+// itself makes below -- is set to exactly `false`, opting it out of an
+// arrival sound entirely. Distinct from the key being merely absent
+// (still falls back to the shared default clip, see eatGhostAudioFor/
+// eatFruitAudioFor) -- config.json's three states are "no key" (default),
+// "a filename" (override), "false" (silence).
+function soundExplicitlyOff(node) {
+  const key = node.place === 'free' ? 'eatghost' : 'eatfruit';
+  return node.spec?.[key] === false;
 }
 
 // The one arrival cue for any node the cascade reaches, regardless of
