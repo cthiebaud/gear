@@ -2002,15 +2002,32 @@ function playIntermission() {
   });
 }
 const DEFAULT_EATFRUIT_URL = '/sounds/pacman_eatfruit.mp3';
-const SOUND_EATGHOST = new Audio('/sounds/pacman_eatghost.mp3');
-// cloneNode() rather than reusing SOUND_EATGHOST directly when it's still
-// playing -- two free nodes reached close together (e.g. the Fender and
+const DEFAULT_EATGHOST_URL = '/sounds/pacman_eatghost.mp3';
+// Same per-node override + shared-cache-by-URL shape as eatFruitAudioFor
+// below: config.json's `eatghost` (a filename under /sounds/) picks a
+// free node's own clip; nodes without an override share one cached Audio
+// for DEFAULT_EATGHOST_URL instead of each getting a redundant copy.
+const eatGhostAudioByUrl = new Map();
+function eatGhostAudioFor(nodeId) {
+  const spec = NODES_BY_ID.get(nodeId)?.spec;
+  const url = spec?.eatghost ? `/sounds/${spec.eatghost}` : DEFAULT_EATGHOST_URL;
+  let audio = eatGhostAudioByUrl.get(url);
+  if (!audio) {
+    audio = new Audio(url);
+    eatGhostAudioByUrl.set(url, audio);
+  }
+  return audio;
+}
+
+// cloneNode() rather than reusing the cached element directly when it's
+// still playing -- two free nodes reached close together (e.g. the Fender and
 // the Engl a second apart) should both be heard, overlapping, not have
 // the second one silently dropped for landing mid-clip of the first.
 // Only clones when actually needed: the common case (nothing else
 // playing) still reuses the one cached element.
-function playEatGhost() {
-  const instance = SOUND_EATGHOST.paused ? SOUND_EATGHOST : SOUND_EATGHOST.cloneNode();
+function playEatGhost(nodeId) {
+  const audio = eatGhostAudioFor(nodeId);
+  const instance = audio.paused ? audio : audio.cloneNode();
   instance.currentTime = 0;
   instance.play().catch(() => {});
   trackOneShot(instance);
@@ -2366,7 +2383,7 @@ function playEatFruit(nodeId) {
 // place="free" node (no LED to land on), eatfruit for one that has an
 // LED, nothing for a board node with neither.
 function playArrivalSound(nodeId) {
-  if (NODES_BY_ID.get(nodeId)?.place === 'free') playEatGhost();
+  if (NODES_BY_ID.get(nodeId)?.place === 'free') playEatGhost(nodeId);
   else if (ledElFor(nodeId)) playEatFruit(nodeId);
 }
 
