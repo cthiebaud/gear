@@ -108,7 +108,6 @@
   "dvp5": {
     "file": "dunlop-volume-x-8-cutout.png",
     "widthMm": 50,
-    "sidebar": true,
     "exp": { "x": 0.421, "y": 0.005 }
   },
   "ironball": {
@@ -118,13 +117,15 @@
     "out": { "x": 0.212, "y": 0.9 },
     "loopOut": { "x": 0.667, "y": 0.919 },
     "loopIn": { "x": 0.333, "y": 0.923 },
-    "led": { "x": 0.819, "y": 0.734 }
+    "led": { "x": 0.819, "y": 0.734 },
+    "eatghost": "guitar-arpège-2.mp3"
   },
   "twin_reverb": {
     "file": "fender-twin-reverb-1974-cutout.png",
     "widthMm": 240,
     "in": { "x": 0.368, "y": 0.076 },
-    "led": { "x": 0.927, "y": 0.0752 }  
+    "led": { "x": 0.927, "y": 0.0752 },
+    "eatghost": "guitar-arpège.mp3"  
   },
   "pedal_power": {
     "file": "voodoolab-4x4.png",
