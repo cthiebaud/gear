@@ -114,7 +114,7 @@
     "file": ["Engl-E606-off.png", "Engl-E606-on.png"],
     "widthMm": 200,
     "in": { "x": 0.093, "y": 0.739 },
-    "out": { "x": 0.212, "y": 0.9 },
+    "out": { "x": 0.5, "y": 0 },
     "loopOut": { "x": 0.667, "y": 0.919 },
     "loopIn": { "x": 0.333, "y": 0.923 },
     "led": { "x": 0.819, "y": 0.734 },
@@ -125,7 +125,12 @@
     "widthMm": 240,
     "in": { "x": 0.368, "y": 0.076 },
     "led": { "x": 0.927, "y": 0.0752 },
-    "eatghost": "guitar-arpeggio.mp3"  
+    "eatghost": "guitar-arpeggio.mp3"
+  },
+  "aer_compact_60": {
+    "file": "AER-Compact-60-Mk-II.png",
+    "widthMm": 140,
+    "in": { "x": 0.5, "y": 0 }
   },
   "pedal_power": {
     "file": "voodoolab-4x4.png",

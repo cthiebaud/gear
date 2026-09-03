@@ -39,6 +39,8 @@ digraph pedalboard {
         label="<in> in|1974 Twin Reverb"];
   ironball [shape=record, owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",
         label="<in> in|E606 Ironball SE X|<out> out|<loopOut> send|<loopIn> return"];
+  aer_compact_60 [shape=record, owner="AER", place="free",
+        label="<in> in|Compact 60 Mk II"];
 
   // --- signal chain ------------------------------------------------------
 
@@ -56,6 +58,7 @@ digraph pedalboard {
   capistan:exp -> dvp5:exp [kind=exp];
   capistan:out -> bluesky:in;
   bluesky:out -> ironball:loopIn [kind="loop-in"];
+  ironball:out -> aer_compact_60:in;
 
   // --- power ---------------------------------------------------------
   //
