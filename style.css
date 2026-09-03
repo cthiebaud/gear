@@ -854,11 +854,14 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
   visibility: hidden;
 }
 
-/* .led-dot.on is toggled by both a manual click and the cascade's own
-   arrival cue (see settleLedOn) -- this button follows either one for
-   free, no JS wiring of its own needed, same :has() trick as the header's
+/* .led-dot.lit is toggled by both a manual click and the cascade's own
+   arrival cue (see settleLedOn), for every node with an LED -- including a
+   hasLedImages node (Engl, Twin), whose dot never gets the sibling .on
+   class since that one also drives a synthetic glow the -on photo would
+   otherwise double up (see app.js). This button follows .lit either way,
+   no JS wiring of its own needed, same :has() trick as the header's
    power-toggle checkbox above. */
-.node-box:has(.led-dot.on) .node-sound-toggle {
+.node-box:has(.led-dot.lit) .node-sound-toggle {
   visibility: visible;
 }
 

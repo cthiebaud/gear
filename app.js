@@ -451,9 +451,9 @@ function renderSoundButton(node) {
 function renderNodeBox(node, baseWidthPx) {
   const box = el('div', 'node-box');
   box.id = node.id;
-  // Set below, inside the ledFrac branch -- only a board pedal (not a
-  // place="free" node, see playArrivalSound) with an LED actually has an
-  // attached sound of its own; read back after the image block to decide
+  // Set below, inside the ledFrac branch -- any node with an LED has a
+  // sound worth previewing on demand, board pedal or place="free" alike
+  // (see playArrivalSound); read back after the image block to decide
   // whether this node gets its own renderSoundButton.
   let hasSound = false;
   if (node.image) {
@@ -486,7 +486,7 @@ function renderNodeBox(node, baseWidthPx) {
       led.style.top = (ledFrac.y * 100) + '%';
       imgWrap.append(led);
       node.ledEl = led; // read by blinkLed() during traceFrom's cascade, keyed off NODES_BY_ID
-      hasSound = node.place !== 'free'; // a place="free" node's arrival cue is the shared eatghost, not a sound of its own -- see playArrivalSound
+      hasSound = true; // playArrivalSound already picks eatfruit vs. eatghost per node.place
 
       // The product-page link used to wrap the image, which put it in
       // direct competition with this same click for the same small
@@ -502,9 +502,13 @@ function renderNodeBox(node, baseWidthPx) {
         // hasLedImages: the dot's own 'on' class never gets set at all (see
         // settleLedOn) -- the -on photo already shows it lit for real, so
         // there's no DOM state to toggle() back off of; ledIsOn is this
-        // node's only record of which way it's currently switched.
+        // node's only record of which way it's currently switched. 'lit'
+        // is a separate, style-free class kept in sync either way -- the
+        // .node-sound-toggle visibility hook (see style.css) needs a class
+        // it can :has() regardless of which photo path lit the LED.
         const isOn = node.hasLedImages ? !node.ledIsOn : led.classList.toggle('on');
         node.ledIsOn = isOn;
+        led.classList.toggle('lit', isOn);
         setLedImage(node, isOn);
         // Always the same manual-click cue, on or off alike -- the
         // pedal's own attached sound (a board pedal's eatfruit clip) lives
@@ -2318,16 +2322,17 @@ const MUSIC_ICONS = [
   },
 ];
 
-// One randomly-assigned glyph per pedal with its own attached sound (see
-// renderSoundButton) -- MUSIC_ICONS has exactly 8 entries for today's 8
-// eligible pedals, so no two ear buttons look alike, same idea as
-// assignPressSounds' one-clip-per-node shuffle just above. Unlike that
-// one, this runs synchronously (no audio to decode first) and must finish
-// before renderNodeBox runs -- called right alongside it from main(), not
-// fire-and-forget. More eligible pedals than icons would mean some share
-// one; there currently aren't.
+// One randomly-assigned glyph per node with its own attached sound (see
+// renderSoundButton) -- board pedal or place="free" alike, anything with
+// an LED. MUSIC_ICONS has fewer entries than today's eligible nodes, so
+// icons.length wraps via i % icons.length -- some glyphs end up shared,
+// which is fine, just no two *adjacent* assignments (thanks to the
+// shuffle) look alike. Same idea as assignPressSounds' one-clip-per-node
+// shuffle just above. Unlike that one, this runs synchronously (no audio
+// to decode first) and must finish before renderNodeBox runs -- called
+// right alongside it from main(), not fire-and-forget.
 function assignSoundIcons(nodeList) {
-  const eligible = nodeList.filter(n => n.spec && n.spec.led && n.place !== 'free');
+  const eligible = nodeList.filter(n => n.spec && n.spec.led);
   const icons = shuffle(MUSIC_ICONS.slice());
   eligible.forEach((node, i) => { node.soundIcon = icons[i % icons.length]; });
 }
@@ -2522,7 +2527,7 @@ function startLedBlink(nodeId) {
 // arrival cue running to completion (see settleLedOn below for that case).
 function stopLedBlink(nodeId) {
   const node = NODES_BY_ID.get(nodeId);
-  node?.ledEl?.classList.remove('blinking', 'on');
+  node?.ledEl?.classList.remove('blinking', 'on', 'lit');
   if (node) node.ledIsOn = false;
   setLedImage(node, false);
 }
@@ -2574,7 +2579,10 @@ function settleLedOn(nodeId) {
   // it's skipped for exactly the nodes where setLedImage below isn't a
   // no-op (see ledIsOn's own comment, in makeNode, for why the toggle
   // handler tracks state explicitly instead of reading this class back).
+  // 'lit' is added either way -- see its own comment in the manual-toggle
+  // handler above.
   if (!node.hasLedImages) led.classList.add('on');
+  led.classList.add('lit');
   setLedImage(node, true);
 }
 
