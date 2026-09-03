@@ -130,7 +130,8 @@
   "aer_compact_60": {
     "file": "AER-Compact-60-Mk-II.png",
     "widthMm": 140,
-    "in": { "x": 0.5, "y": 0 }
+    "in": { "x": 0.5, "y": 0 },
+    "eatghost": false
   },
   "pedal_power": {
     "file": "voodoolab-4x4.png",
