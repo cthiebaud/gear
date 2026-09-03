@@ -594,7 +594,7 @@ const ROW_GAP_Y_PX = 1.6;   // vertical gap between stacked rows -- keep in sync
 const BOARD_LOWER_GAP_PX = 40; // gap between the row-stack and the sidebar -- keep in sync with .board-lower's base gap
 const BOARD_PADDING_X_PX = 32; // .board left/right padding, base
 const BOARD_PADDING_Y_PX = 28; // .board top/bottom padding, base
-const COMPASS_GAP_PX = 16;  // gap between free items sharing a compass side, and between a side and the board
+const COMPASS_GAP_PX = 30;  // gap between free items sharing a compass side, and between a side and the board
 const MAX_ROWS_PER_RUN = 12; // row-count search cap -- one row per pedal, for any realistic pedal count
 
 // Power edges get a much lower weight in the wire-length objective than
@@ -1031,6 +1031,66 @@ function layoutBySide(bySide, boardW, boardH) {
   return { pos, extents };
 }
 
+// Deterministic clean-up pass, run once placeFreeItems is done -- its
+// compass-side placement only ever *aims* for clear space along each
+// item's assigned edge, it never actually verifies two items sharing a
+// side (or a free item and the board rectangle itself) end up
+// non-overlapping. Left alone, that's not just cosmetic: libavoid can't
+// find a valid orthogonal corridor through two overlapping obstacles and
+// falls back to a direct (diagonal) line between whatever pins are
+// affected -- confirmed against a real diagonal connector, whose routed
+// `d` turned out to be a bare 2-point line straight from libavoid's own
+// displayRoute(). Board nodes are never moved here: the row-stack that
+// placed them is already non-overlapping by construction (see
+// measureRows), so only free-vs-free and free-vs-board pairs need
+// separating.
+const RESOLVE_OVERLAP_PASSES = 40;
+function resolveFreeOverlaps(freePos, boardW, boardH) {
+  const margin = COMPASS_GAP_PX / 2;
+  const items = [...freePos.values()];
+  for (let pass = 0; pass < RESOLVE_OVERLAP_PASSES; pass++) {
+    let moved = false;
+    for (let a = 0; a < items.length; a++) {
+      for (let b = a + 1; b < items.length; b++) {
+        const pi = items[a], pj = items[b];
+        const overlapX = Math.min(pi.x + pi.w + margin, pj.x + pj.w + margin) - Math.max(pi.x - margin, pj.x - margin);
+        const overlapY = Math.min(pi.y + pi.h + margin, pj.y + pj.h + margin) - Math.max(pi.y - margin, pj.y - margin);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        moved = true;
+        // Push apart along whichever axis needs the smaller shift -- same
+        // "cheapest separation" any AABB-overlap resolver uses.
+        if (overlapX < overlapY) {
+          const dir = pi.x < pj.x ? -1 : 1;
+          pi.x += dir * overlapX / 2;
+          pj.x -= dir * overlapX / 2;
+        } else {
+          const dir = pi.y < pj.y ? -1 : 1;
+          pi.y += dir * overlapY / 2;
+          pj.y -= dir * overlapY / 2;
+        }
+      }
+    }
+    // A free node overlapping the board rectangle itself -- boardW/boardH
+    // already include BOARD_PADDING_X/Y_PX by the time placeFreeItems
+    // runs (see solveLayout), so [0, 0, boardW, boardH] is the real
+    // rendered rectangle, not just the tight bbox of the pedals in it.
+    for (const p of items) {
+      const overlapX = Math.min(p.x + p.w + margin, boardW + margin) - Math.max(p.x - margin, -margin);
+      const overlapY = Math.min(p.y + p.h + margin, boardH + margin) - Math.max(p.y - margin, -margin);
+      if (overlapX <= 0 || overlapY <= 0) continue;
+      moved = true;
+      if (overlapX < overlapY) {
+        const dir = (p.x + p.w / 2) < boardW / 2 ? -1 : 1;
+        p.x += dir * overlapX;
+      } else {
+        const dir = (p.y + p.h / 2) < boardH / 2 ? -1 : 1;
+        p.y += dir * overlapY;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
 // Places every free node -- guitar, amps, the PSU, and so on -- around
 // the rectangle at its own real (x, y), not bucketed into a fixed
 // compass column/row the way a CSS grid would force it to be (a grid
@@ -1097,6 +1157,7 @@ function solveLayout(onBoard, sidebarNodes, freeNodes, links, rowGroups, availW,
     boardH += 2 * BOARD_PADDING_Y_PX;
 
     const { pos: freePos } = placeFreeItems(freeNodes, links, boardPos, boardW, boardH);
+    resolveFreeOverlaps(freePos, boardW, boardH);
 
     let minX = 0, minY = 0, maxX = boardW, maxY = boardH;
     for (const [, p] of freePos) {
@@ -1571,12 +1632,12 @@ function connectorArrows(points, kind) {
 // .board-rows's own gap (see style.css), which is well under double
 // this value, so that corridor specifically may still run tighter than
 // this promises; widen that gap if wires there need to stay clear too.
-const SHAPE_BUFFER_PX = 18;
+const SHAPE_BUFFER_PX = 10;
 // Extra clearance baked directly into each image's own obstacle
 // rectangle (see shapeInfoFor) -- a fallback for where SHAPE_BUFFER_PX's
 // router-level clearance doesn't hold (see its comment above). Same
 // tight-corridor caveat applies: can't create room that isn't there.
-const OBSTACLE_MARGIN_PX = 5;
+const OBSTACLE_MARGIN_PX = 3;
 const CORNER_RADIUS_PX = 4;
 const HOP_RADIUS_PX = 6;
 const MIN_HOP_RADIUS_PX = 2; // below this a hop would be too small to read as anything but noise -- skip it, leave the crossing plain
@@ -3093,6 +3154,18 @@ async function main() {
   } finally {
     document.getElementById('loading')?.remove();
   }
+
+  // Self-heal for a rare first-load-only misrouting seen on real (slow,
+  // uncached) network conditions -- never reproduced locally or with a
+  // warm cache, so the actual race inside this first relayoutAndRoute()
+  // isn't pinned down. What is confirmed: a *second* route() against the
+  // exact same (by-then-settled) DOM always fixes it -- it's what a tiny
+  // window resize already does by accident whenever this happens live.
+  // Node positions from the first pass are already correct (only the
+  // wires are ever wrong), so this only needs a fresh route(), not a
+  // full relayout. Harmless if nothing was actually wrong: route() just
+  // rebuilds the same overlay from the same geometry a second time.
+  setTimeout(route, 1000);
 
   // Routes drawn against mid-resize geometry would be visibly wrong for
   // the whole debounce wait -- pedals already moved/rescaled, wires still
