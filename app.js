@@ -212,7 +212,7 @@ function makeNode(id, attrs) {
     hasLedImages,
     ledOffSrc: hasLedImages ? image : null,
     ledOnSrc: hasLedImages ? '/images/' + spec.file[1] : null,
-    ledIsOn: false, // tracked explicitly rather than read off the dot's own classList -- a hasLedImages node deliberately never gets the dot's 'on' class (see settleLedOn/renderNodeBox), so there'd be nothing in the DOM to read it back from
+    ledIsOn: false, // tracked explicitly rather than read off the dot's own classList -- setLedImage needs the new state at the same point the classList toggle produces it, not a separate read-back
 
     url: attrs.url || null, // product page to open when the image is clicked, if any
     el: null, // <img> element, filled in during render
@@ -499,16 +499,11 @@ function renderNodeBox(node, baseWidthPx) {
       img.classList.add('led-toggle');
       img.title = `${node.name} — toggle LED`;
       imgWrap.addEventListener('click', () => {
-        // hasLedImages: the dot's own 'on' class never gets set at all (see
-        // settleLedOn) -- the -on photo already shows it lit for real, so
-        // there's no DOM state to toggle() back off of; ledIsOn is this
-        // node's only record of which way it's currently switched. 'lit'
-        // is a separate, style-free class kept in sync either way -- the
-        // .node-sound-toggle visibility hook (see style.css) needs a class
-        // it can :has() regardless of which photo path lit the LED.
-        const isOn = node.hasLedImages ? !node.ledIsOn : led.classList.toggle('on');
+        // A hasLedImages node's -on photo already shows it lit for real,
+        // so the synthetic dot glow this class also draws is redundant on
+        // top of it -- harmless doubling, not worth a special case.
+        const isOn = led.classList.toggle('on');
         node.ledIsOn = isOn;
-        led.classList.toggle('lit', isOn);
         setLedImage(node, isOn);
         // Always the same manual-click cue, on or off alike -- the
         // pedal's own attached sound (a board pedal's eatfruit clip) lives
@@ -2527,7 +2522,7 @@ function startLedBlink(nodeId) {
 // arrival cue running to completion (see settleLedOn below for that case).
 function stopLedBlink(nodeId) {
   const node = NODES_BY_ID.get(nodeId);
-  node?.ledEl?.classList.remove('blinking', 'on', 'lit');
+  node?.ledEl?.classList.remove('blinking', 'on');
   if (node) node.ledIsOn = false;
   setLedImage(node, false);
 }
@@ -2574,15 +2569,10 @@ function settleLedOn(nodeId) {
   if (!led) return;
   led.classList.remove('blinking');
   node.ledIsOn = true;
-  // A hasLedImages node's own -on photo already shows it lit for real --
-  // the synthetic dot glow this class draws would just double it up, so
-  // it's skipped for exactly the nodes where setLedImage below isn't a
-  // no-op (see ledIsOn's own comment, in makeNode, for why the toggle
-  // handler tracks state explicitly instead of reading this class back).
-  // 'lit' is added either way -- see its own comment in the manual-toggle
-  // handler above.
-  if (!node.hasLedImages) led.classList.add('on');
-  led.classList.add('lit');
+  // A hasLedImages node's own -on photo already shows it lit for real, so
+  // this synthetic dot glow just doubles it up -- harmless, not worth a
+  // special case (see the manual-toggle handler above).
+  led.classList.add('on');
   setLedImage(node, true);
 }
 
