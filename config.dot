@@ -33,8 +33,12 @@ digraph pedalboard {
   bluesky [shape=record, owner="Strymon", url="https://www.strymon.net/product/bluesky/",
         label="<in> in|BlueSky v1|<out> out|<power> pwr"];
 
-  // simplifier_x [shape=record, owner="DSM & Humboldt", place="free", url="https://www.dsmhumboldt.com/simplifier-x", 
-  //       label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
+  simplifier_x [shape=record, owner="DSM & Humboldt", place="free", url="https://www.dsmhumboldt.com/simplifier-x", 
+        label="<in> in|Simplifier X|<out> out|<loopOut> send|<loopIn> return|<power> pwr"];
+  ve_500 [shape=record, owner="Boss", place="free", url="https://www.boss.info/it/products/ve-500/", 
+        label="VE-500"];
+  tlm_103 [shape=record, owner="Neumann", place="free", url="https://www.neumann.com/fr-ch/products/microphones/tlm-103", 
+        label="TLM 103"];
   twin_reverb [shape=record, owner="Fender", place="free", url="https://en.wikipedia.org/wiki/Fender_Twin",
         label="<in> in|1974 Twin Reverb"];
   ironball [shape=record, owner="Engl", place="free", url="https://www.engl-amps.com/shop/heads/ironball-special-edition-e606se/",

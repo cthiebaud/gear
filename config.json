@@ -133,6 +133,14 @@
     "in": { "x": 0.5, "y": 0 },
     "eatghost": false
   },
+  "ve_500": {
+    "file": "ve-500.png",
+    "widthMm": 115
+  },
+  "tlm_103": {
+    "file": "tlm-103.png",
+    "widthMm": 50
+  },
   "pedal_power": {
     "file": "voodoolab-4x4.png",
     "widthMm": 176,
