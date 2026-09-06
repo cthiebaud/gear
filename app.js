@@ -3119,7 +3119,10 @@ async function main() {
   // export), loaded via a classic <script> tag in index.html before this
   // one, so it's already on window here.
   const ast = window.dotParser.parse(text);
-  const { nodeList, links, rowGroups } = buildModel(ast);
+  const { nodeList: allNodes, links, rowGroups } = buildModel(ast);
+  const linkedIds = new Set();
+  for (const l of links) { linkedIds.add(l.from.id); linkedIds.add(l.to.id); }
+  const nodeList = allNodes.filter(n => linkedIds.has(n.id));
   NODES_BY_ID = new Map(nodeList.map(n => [n.id, n]));
   assignPressSounds(nodeList); // fire-and-forget -- see its own comment
   assignSoundIcons(nodeList); // synchronous, must finish before renderNodeBox runs below -- see its own comment
