@@ -141,6 +141,12 @@
     "file": "tlm-103.png",
     "widthMm": 50
   },
+  "harley_benton_g112": {
+    "file": "harley-benton-g112-celestion-v30.png",
+    "widthMm": 200,
+    "in": { "x": 0.5, "y": 0 },
+    "eatghost": false
+  },
   "pedal_power": {
     "file": "voodoolab-4x4.png",
     "widthMm": 176,
