@@ -830,7 +830,7 @@ body:has(#power-connectors-toggle:not(:checked)) .connector-arrow-power {
 }
 
 .node-owner {
-  font-size: calc(0.68rem * var(--ui-scale));
+  font-size: calc(0.8rem * var(--ui-scale));
   color: var(--muted);
   margin-top: calc(0.15rem * var(--ui-scale));
 }
